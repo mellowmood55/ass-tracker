@@ -1,0 +1,49 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
+
+:root {
+  --color-forest: #1e4620;
+  --color-forest-glow: rgba(30, 70, 32, 0.2);
+  --color-earth-brown: #5c4033;
+  --color-border-subtle: #e6dfd9;
+  --bg: #f5f5f4;
+  --text: #3f342c;
+  --muted: #6c5a4d;
+  --accent: #1e4620;
+  --panel-bg: #ffffff;
+  --panel-border: var(--color-border-subtle);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at top left, #ffffff 0, #f5f5f4 45%, #f1ede8 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+.glow-card-hover {
+  transition: all 0.3s ease-in-out;
+  border: 1px solid var(--color-border-subtle);
+}
+
+.glow-card-hover:hover {
+  box-shadow: 0 10px 25px -5px var(--color-forest-glow);
+  border-color: var(--color-forest) !important;
+}
+
+.glow-alert-pulse {
+  animation: alert-pulse 2s infinite alternate;
+}
+
+@keyframes alert-pulse {
+  0% { box-shadow: 0 0 6px 1px rgba(220, 38, 38, 0.2); border-color: #ef4444; }
+  100% { box-shadow: 0 0 16px 4px rgba(220, 38, 38, 0.4); border-color: #b91c1c; }
+}
