@@ -1,49 +1,105 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Space Grotesk", "Segoe UI", sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
 
 :root {
-  --color-forest: #1e4620;
-  --color-forest-glow: rgba(30, 70, 32, 0.2);
-  --color-earth-brown: #5c4033;
-  --color-border-subtle: #e6dfd9;
-  --bg: #f5f5f4;
-  --text: #3f342c;
-  --muted: #6c5a4d;
-  --accent: #1e4620;
-  --panel-bg: #ffffff;
-  --panel-border: var(--color-border-subtle);
-  font-family: "Space Grotesk", "Segoe UI", sans-serif;
-  color: var(--text);
-  background: radial-gradient(circle at top left, #ffffff 0, #f5f5f4 45%, #f1ede8 100%);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --radius: 0.625rem;
+  --background: #f5f5f4;
+  --foreground: #3f342c;
+  --card: #ffffff;
+  --card-foreground: #3f342c;
+  --popover: #ffffff;
+  --popover-foreground: #3f342c;
+  --primary: #1e4620;
+  --primary-foreground: #ffffff;
+  --secondary: #f1ede8;
+  --secondary-foreground: #5c4033;
+  --muted: #f1ede8;
+  --muted-foreground: #6c5a4d;
+  --accent: #e8f0e8;
+  --accent-foreground: #1e4620;
+  --destructive: #dc2626;
+  --border: #e6dfd9;
+  --input: #e6dfd9;
+  --ring: #1e4620;
+  --chart-1: #1e4620;
+  --chart-2: #335d2f;
+  --chart-3: #5c4033;
+  --chart-4: #d97706;
+  --chart-5: #dc2626;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #3f342c;
+  --sidebar-primary: #1e4620;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f1ede8;
+  --sidebar-accent-foreground: #1e4620;
+  --sidebar-border: #e6dfd9;
+  --sidebar-ring: #1e4620;
 }
 
-* {
-  box-sizing: border-box;
-}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
 
-body {
-  margin: 0;
-  min-height: 100dvh;
-}
-
-.glow-card-hover {
-  transition: all 0.3s ease-in-out;
-  border: 1px solid var(--color-border-subtle);
-}
-
-.glow-card-hover:hover {
-  box-shadow: 0 10px 25px -5px var(--color-forest-glow);
-  border-color: var(--color-forest) !important;
-}
-
-.glow-alert-pulse {
-  animation: alert-pulse 2s infinite alternate;
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background: radial-gradient(circle at top left, #ffffff 0, #f5f5f4 45%, #f1ede8 100%);
+    min-height: 100dvh;
+  }
 }
 
 @keyframes alert-pulse {
-  0% { box-shadow: 0 0 6px 1px rgba(220, 38, 38, 0.2); border-color: #ef4444; }
-  100% { box-shadow: 0 0 16px 4px rgba(220, 38, 38, 0.4); border-color: #b91c1c; }
+  0% {
+    box-shadow: 0 0 6px 1px rgba(220, 38, 38, 0.2);
+    border-color: #ef4444;
+  }
+  100% {
+    box-shadow: 0 0 16px 4px rgba(220, 38, 38, 0.4);
+    border-color: #b91c1c;
+  }
+}
+
+.alert-pulse {
+  animation: alert-pulse 2s infinite alternate;
 }

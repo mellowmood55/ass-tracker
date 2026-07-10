@@ -7,8 +7,8 @@ const { z } = require("zod");
 
 const { db, initDb } = require("./db");
 const { signToken, requireAuth } = require("./auth");
-const { CATEGORY_CODES, CATEGORY_CONFIG, STATUS_BY_CATEGORY } = require("./catalog");
-const { validateAssetPayload } = require("./validation");
+const { CATEGORY_CODES, CATEGORY_CONFIG, STATUS_BY_CATEGORY, normalizeImportRow } = require("./catalog");
+const { validateAssetPayload, collectBlankRequiredFields } = require("./validation");
 
 initDb();
 
@@ -501,6 +501,175 @@ app.delete("/api/assets/:id", requireAuth, (req, res) => {
     return res.status(204).send();
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete asset." });
+  }
+});
+
+app.post("/api/assets/import", requireAuth, (req, res) => {
+  const importSchema = z.object({
+    category: z.string().min(1),
+    rows: z.array(z.record(z.string(), z.unknown())).min(1),
+  });
+
+  const parsed = importSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid import payload." });
+  }
+
+  const { category, rows } = parsed.data;
+
+  if (!CATEGORY_CONFIG[category]) {
+    return res.status(400).json({ message: `Unknown category '${category}'.` });
+  }
+
+  const findByAssetNo = db.prepare(
+    `SELECT id, asset_no, serial_no FROM assets WHERE asset_no IS NOT NULL AND trim(asset_no) <> '' AND asset_no = ?`
+  );
+  const findBySerialNo = db.prepare(
+    `SELECT id, asset_no, serial_no FROM assets WHERE serial_no IS NOT NULL AND trim(serial_no) <> '' AND serial_no = ?`
+  );
+
+  const insertAsset = db.prepare(
+    `INSERT INTO assets (
+      category,
+      location,
+      office,
+      model,
+      asset_no,
+      serial_no,
+      status,
+      details_json,
+      created_by,
+      updated_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  const importTransaction = db.transaction((importRows) => {
+    const created = [];
+    const needsAttention = [];
+    let skipped = 0;
+    const seenAssetNos = new Set();
+    const seenSerialNos = new Set();
+
+    for (let index = 0; index < importRows.length; index += 1) {
+      const row = normalizeImportRow(importRows[index], category);
+      const payload = {
+        category,
+        location: row.location || null,
+        office: row.office || null,
+        model: row.model || null,
+        assetNo: row.assetNo || null,
+        serialNo: row.serialNo || null,
+        status: row.status,
+        details: row.details || {},
+      };
+
+      // Capture blanks before import validation applies provisional defaults (e.g. status).
+      const blankFields = collectBlankRequiredFields(payload);
+
+      const result = validateAssetPayload(payload, { mode: "import", allowMissingLocation: true });
+      if (!result.valid) {
+        throw new Error(`Row ${index + 1}: ${result.errors.join(" ")}`);
+      }
+
+      const asset = result.data;
+      const assetNo = asset.assetNo || null;
+      const serialNo = asset.serialNo || null;
+      const duplicateFields = [];
+      let existingId = null;
+
+      if (assetNo) {
+        if (seenAssetNos.has(assetNo)) {
+          duplicateFields.push("Asset No");
+        } else {
+          const existing = findByAssetNo.get(assetNo);
+          if (existing) {
+            duplicateFields.push("Asset No");
+            existingId = existing.id;
+          }
+        }
+      }
+
+      if (serialNo) {
+        if (seenSerialNos.has(serialNo)) {
+          if (!duplicateFields.includes("Serial No")) {
+            duplicateFields.push("Serial No");
+          }
+        } else {
+          const existing = findBySerialNo.get(serialNo);
+          if (existing) {
+            if (!duplicateFields.includes("Serial No")) {
+              duplicateFields.push("Serial No");
+            }
+            if (existingId == null) {
+              existingId = existing.id;
+            }
+          }
+        }
+      }
+
+      if (duplicateFields.length > 0) {
+        skipped += 1;
+        needsAttention.push({
+          row: index + 1,
+          reason: "duplicate",
+          id: existingId,
+          assetNo,
+          serialNo,
+          blankFields: [],
+          duplicateFields,
+          existingId,
+        });
+        continue;
+      }
+
+      if (assetNo) seenAssetNos.add(assetNo);
+      if (serialNo) seenSerialNos.add(serialNo);
+
+      const insertResult = insertAsset.run(
+        asset.category,
+        asset.location || null,
+        asset.office || null,
+        asset.model || null,
+        assetNo,
+        serialNo,
+        asset.status,
+        JSON.stringify(asset.details || {}),
+        req.user.sub,
+        req.user.sub
+      );
+
+      const createdRow = db.prepare("SELECT * FROM assets WHERE id = ?").get(insertResult.lastInsertRowid);
+      const mapped = mapAssetRow(createdRow);
+      insertAuditLog({ assetId: mapped.id, action: "create", user: req.user, before: null, after: mapped });
+      created.push(mapped);
+
+      if (blankFields.length > 0) {
+        needsAttention.push({
+          row: index + 1,
+          reason: "blank",
+          id: mapped.id,
+          assetNo: mapped.assetNo || null,
+          serialNo: mapped.serialNo || null,
+          blankFields,
+        });
+      }
+    }
+
+    return { created, needsAttention, skipped };
+  });
+
+  try {
+    const { created, needsAttention, skipped } = importTransaction(rows);
+    return res.status(201).json({
+      imported: created.length,
+      skipped,
+      assets: created,
+      needsAttention,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message || "Import failed. No rows were imported.",
+    });
   }
 });
 
