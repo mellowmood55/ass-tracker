@@ -2,11 +2,13 @@
 
 LAN-ready asset tracker for ICT teams with:
 - Local account login
+- Mobile-first tabbed UI (Dashboard, Entry, Import, Assets)
 - Category-driven input forms
 - Category-specific statuses and validation
 - Asset CRUD with search/filter
 - Excel and PDF report exports
-- Dynamic category-aware CSV/XLS/XLSX import
+- Stepped CSV/XLS/XLSX import with column mapping memory
+- Priority risk alerts (antivirus + outdated OS)
 - SQLite persistence
 - Basic audit trail
 
@@ -20,30 +22,76 @@ LAN-ready asset tracker for ICT teams with:
 
 Change this account password immediately for production use.
 
-## Run Backend
-1. Open terminal in `server`
-2. Install dependencies:
-   npm install
-3. Start API:
-   npm run dev
+## Quick start (both apps)
 
-Backend runs on: http://localhost:4000
+From the repo root:
 
-## Run Frontend
-1. Open terminal in `client`
-2. Install dependencies:
-   npm install
-3. Start app:
-   npm run dev
+```bash
+npm run install:all
+npm install
+npm run dev
+```
 
-Frontend runs on: http://localhost:5173
+- Frontend: http://localhost:5173  
+- Backend: http://localhost:4000  
+
+### Run on a phone (same Wi‑Fi)
+
+1. Find your PC LAN IP (e.g. `ipconfig` → IPv4, such as `192.168.100.37`).
+2. In `client/.env` set:
+   ```env
+   VITE_API_BASE=http://YOUR_LAN_IP:4000
+   ```
+3. From the repo root:
+   ```bash
+   npm run dev:lan
+   ```
+4. On the phone browser open `http://YOUR_LAN_IP:5173`.
+
+Allow Node/Vite through Windows Firewall for ports **4000** and **5173** if prompted.
+
+## Run separately
+
+**Backend**
+
+```bash
+cd server
+npm install
+npm run dev
+```
+
+**Frontend**
+
+```bash
+cd client
+npm install
+npm run dev
+```
 
 ## Environment
 Backend example env file:
 - `server/.env.example`
 
 Optional frontend API override:
-- VITE_API_BASE=http://localhost:4000
+- `VITE_API_BASE=http://localhost:4000` (use your LAN IP when testing on a phone)
+
+## App tabs
+
+| Tab | Route | Purpose |
+|-----|-------|---------|
+| Dashboard | `/` | Smart insights, priority alerts, import shortcut |
+| Entry | `/entry` | Create or edit a single asset |
+| Import | `/import` | Stepped bulk upload wizard |
+| Assets | `/assets` | Browse, filter, export; risk action lists |
+
+Alerts and insight cards open Assets with a risk filter (`?risk=…`). Edits return to that list and refresh counts via a shared data-refresh signal. The Dashboard tab shows a badge when computers need attention.
+
+## Risk priority (computers)
+
+1. Antivirus Expired  
+2. Missing Antivirus  
+3. Expiring Soon (≤30 days)  
+4. Outdated OS (Windows 7 / 8 / 8.1)
 
 ## Implemented Categories and Fields
 1. Computer:
@@ -79,12 +127,12 @@ Optional frontend API override:
 - ICT-only access via local accounts
 - Category-specific status sets
 - Asset No and Serial No enforced unique across all categories
-- Smart insights dashboard flags outdated Windows versions and antivirus subscriptions due within 30 days
-- Smart insights dashboard now separates Missing Antivirus, Antivirus Expired, and Antivirus Expiring Soon
+- Smart insights with prioritized alerts and auto-refresh after edits/imports/deletes
 
 ## Import Data
-- Use the Import Data button beside the asset form.
+- Open the **Import** tab (or the Dashboard import widget).
+- Steps: Category → Upload → Mapping → Preview → Result.
 - Supported file types: .csv, .xlsx, .xls.
-- The modal shows required headers for the selected category.
-- Header mismatch blocks upload with clear error feedback.
-- Bulk import is transactional: if one row fails (for example duplicate Asset No or Serial No), the whole batch is rolled back.
+- Column mappings are remembered per category in the browser.
+- After import, download a CSV of skipped/blank “needs attention” rows from the Result step.
+- Duplicate Asset No / Serial No rows are skipped with warnings; blank required fields are allowed and flagged for follow-up in Assets.

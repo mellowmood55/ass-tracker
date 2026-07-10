@@ -6,3 +6,5 @@ server/dist/
 .env
 .env.*
 *.log
+*.db-shm
+*.db-wal

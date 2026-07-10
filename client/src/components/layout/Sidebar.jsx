@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
-export function Sidebar({ onNavigate }) {
+export function Sidebar({ onNavigate, riskCount = 0 }) {
   const { auth, logout } = useAuth();
 
   return (
@@ -42,7 +42,17 @@ export function Sidebar({ onNavigate }) {
             }
           >
             <Icon className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:scale-110" />
-            {label}
+            <span className="flex-1">{label}</span>
+            {to === "/" && riskCount > 0 && (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                  "bg-destructive text-white"
+                )}
+              >
+                {riskCount > 99 ? "99+" : riskCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

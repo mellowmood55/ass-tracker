@@ -41,6 +41,16 @@ const ALL_STATUSES = [
   "Inactive",
 ];
 
+const CATEGORY_TAB_KEY = "ass-tracker-assets-category-tab";
+
+function readStoredCategoryTab() {
+  try {
+    return sessionStorage.getItem(CATEGORY_TAB_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
 export function AssetsPage() {
   const { auth } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -51,7 +61,7 @@ export function AssetsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
-  const [activeCategoryTab, setActiveCategoryTab] = useState("");
+  const [activeCategoryTab, setActiveCategoryTab] = useState(readStoredCategoryTab);
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -81,9 +91,22 @@ export function AssetsPage() {
       return;
     }
     if (!visibleCategories.some((category) => category.code === activeCategoryTab)) {
-      setActiveCategoryTab(visibleCategories[0].code);
+      const stored = readStoredCategoryTab();
+      const next = visibleCategories.some((category) => category.code === stored)
+        ? stored
+        : visibleCategories[0].code;
+      setActiveCategoryTab(next);
     }
   }, [visibleCategories, activeCategoryTab]);
+
+  function handleCategoryTabChange(code) {
+    setActiveCategoryTab(code);
+    try {
+      sessionStorage.setItem(CATEGORY_TAB_KEY, code);
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }
 
   useEffect(() => {
     function handleVisibility() {
@@ -262,7 +285,7 @@ export function AssetsPage() {
       {visibleCategories.length === 0 ? (
         <p className="text-sm text-muted-foreground">No categories available.</p>
       ) : (
-        <Tabs value={activeCategoryTab} onValueChange={setActiveCategoryTab}>
+        <Tabs value={activeCategoryTab} onValueChange={handleCategoryTabChange}>
           <TabsList className="h-auto min-h-10 w-full flex-wrap justify-start">
             {visibleCategories.map((category) => {
               const count = (assetsByCategory[category.code] || []).filter((asset) =>

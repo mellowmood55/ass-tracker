@@ -1,12 +1,17 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
+import { useInsights } from "@/hooks/useInsights";
+import { EMPTY_FILTERS } from "@/lib/constants";
 
 export function AppShell() {
+  const { insights } = useInsights(EMPTY_FILTERS);
+  const riskCount = insights?.riskAssets?.length ?? 0;
+
   return (
     <div className="flex min-h-dvh">
       <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar md:block">
-        <Sidebar />
+        <Sidebar riskCount={riskCount} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -17,6 +22,11 @@ export function AppShell() {
             </p>
             <p className="text-sm font-bold text-primary">Stay on top of risk</p>
           </div>
+          {riskCount > 0 && (
+            <span className="ml-auto rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-white">
+              {riskCount} risk{riskCount === 1 ? "" : "s"}
+            </span>
+          )}
         </header>
 
         <main className="flex-1 overflow-auto p-4 pb-24 md:p-6 md:pb-6">
@@ -24,7 +34,7 @@ export function AppShell() {
         </main>
       </div>
 
-      <MobileTabBar />
+      <MobileTabBar riskCount={riskCount} />
     </div>
   );
 }

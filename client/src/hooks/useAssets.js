@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, buildAssetQuery } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useDataRefresh } from "@/context/DataRefreshContext";
 
 export function useAssets(filters) {
   const { auth } = useAuth();
+  const { version } = useDataRefresh();
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -27,7 +29,7 @@ export function useAssets(filters) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAssets();
-  }, [loadAssets]);
+  }, [loadAssets, version]);
 
   return { assets, setAssets, loading, error, reload: loadAssets };
 }

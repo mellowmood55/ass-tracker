@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AssetForm } from "@/components/assets/AssetForm";
+import { useDataRefresh } from "@/context/DataRefreshContext";
 import { useCategories } from "@/hooks/useCategories";
 import { useAssets } from "@/hooks/useAssets";
 import { formStateFromAsset, makeInitialFormState } from "@/lib/assetColumns";
@@ -13,9 +14,10 @@ export function EntryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const editId = searchParams.get("edit");
   const returnTo = searchParams.get("returnTo");
+  const { bump } = useDataRefresh();
 
   const { categories, loading: categoriesLoading } = useCategories();
-  const { assets, loading: assetsLoading, reload: reloadAssets } = useAssets(EMPTY_FILTERS);
+  const { assets, loading: assetsLoading } = useAssets(EMPTY_FILTERS);
 
   const editAsset = useMemo(() => {
     if (!editId) return null;
@@ -49,7 +51,7 @@ export function EntryPage() {
   }
 
   function handleSaved() {
-    void reloadAssets();
+    bump("asset-saved");
     if (returnTo) {
       navigate(returnTo);
       return;

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, buildAssetQuery } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useDataRefresh } from "@/context/DataRefreshContext";
 
 export function useInsights(filters) {
   const { auth } = useAuth();
+  const { version } = useDataRefresh();
   const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -27,7 +29,7 @@ export function useInsights(filters) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadInsights();
-  }, [loadInsights]);
+  }, [loadInsights, version]);
 
   return { insights, loading, error, reload: loadInsights };
 }
