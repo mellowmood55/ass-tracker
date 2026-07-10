@@ -6,18 +6,18 @@ import { cn } from "@/lib/utils";
 
 const insightCards = [
   {
-    key: "missingAntivirus",
-    label: "Missing Antivirus",
-    icon: ShieldX,
-    risk: "missing-antivirus",
-    variant: "warning",
-  },
-  {
     key: "antivirusExpired",
     label: "Antivirus Expired",
     icon: ShieldAlert,
     risk: "antivirus-expired",
     variant: "destructive",
+  },
+  {
+    key: "missingAntivirus",
+    label: "Missing Antivirus",
+    icon: ShieldX,
+    risk: "missing-antivirus",
+    variant: "warning",
   },
   {
     key: "antivirusExpiringSoon",
@@ -58,8 +58,8 @@ export function InsightCardGrid({ insights, loading }) {
   const totals = insights?.totals || {};
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      {insightCards.map(({ key, label, icon: Icon, risk, variant }) => {
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {insightCards.map(({ key, label, icon: Icon, risk, variant }, index) => {
         const value = totals[key] ?? 0;
         const clickable = Boolean(risk);
 
@@ -67,12 +67,14 @@ export function InsightCardGrid({ insights, loading }) {
           <Card
             key={key}
             className={cn(
-              "transition-all",
-              clickable && "cursor-pointer hover:border-primary hover:shadow-md",
+              "insight-card-enter border-border/70 shadow-sm transition-all duration-200",
+              clickable && "cursor-pointer hover:-translate-y-0.5 hover:border-primary hover:shadow-md active:scale-[0.99]",
               variant === "pulse" && value > 0 && "alert-pulse border-destructive/50",
-              variant === "destructive" && value > 0 && "border-destructive/30 bg-destructive/5",
-              variant === "warning" && value > 0 && "border-amber-300/50 bg-amber-50/50"
+              variant === "destructive" && value > 0 && "border-destructive/40 bg-destructive/5",
+              variant === "warning" && value > 0 && "border-amber-500/40 bg-amber-50/70",
+              variant === "neutral" && "bg-primary text-primary-foreground border-primary"
             )}
+            style={{ animationDelay: `${index * 45}ms` }}
             onClick={() => risk && navigate(`/assets?risk=${risk}`)}
             role={clickable ? "button" : undefined}
             tabIndex={clickable ? 0 : undefined}
@@ -85,10 +87,29 @@ export function InsightCardGrid({ insights, loading }) {
           >
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">{label}</span>
-                <Icon className="h-4 w-4 text-muted-foreground" />
+                <span
+                  className={cn(
+                    "text-xs font-semibold",
+                    variant === "neutral" ? "text-primary-foreground/80" : "text-muted-foreground"
+                  )}
+                >
+                  {label}
+                </span>
+                <Icon
+                  className={cn(
+                    "h-4 w-4",
+                    variant === "neutral" ? "text-primary-foreground/80" : "text-muted-foreground"
+                  )}
+                />
               </div>
-              <p className="mt-2 text-3xl font-bold text-foreground">{value}</p>
+              <p
+                className={cn(
+                  "mt-2 text-3xl font-bold tracking-tight",
+                  variant === "neutral" ? "text-primary-foreground" : "text-foreground"
+                )}
+              >
+                {value}
+              </p>
             </CardContent>
           </Card>
         );

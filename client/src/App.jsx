@@ -5,11 +5,13 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppShell } from "@/components/layout/AppShell";
 import { LoginPage } from "@/pages/LoginPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { EntryPage } from "@/pages/EntryPage";
+import { ImportPage } from "@/pages/ImportPage";
 import { AssetsPage } from "@/pages/AssetsPage";
 
 function EditRedirect() {
   const { id } = useParams();
-  return <Navigate to={`/?edit=${id}`} replace />;
+  return <Navigate to={`/entry?edit=${id}`} replace />;
 }
 
 function App() {
@@ -26,6 +28,8 @@ function App() {
             }
           >
             <Route index element={<DashboardPage />} />
+            <Route path="entry" element={<EntryPage />} />
+            <Route path="import" element={<ImportPage />} />
             <Route path="assets" element={<AssetsPage />} />
             <Route path="assets/:id/edit" element={<EditRedirect />} />
           </Route>

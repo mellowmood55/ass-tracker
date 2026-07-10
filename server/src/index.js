@@ -204,6 +204,37 @@ function buildReportColumns(asset) {
   }
 }
 
+const RISK_PRIORITY = {
+  "antivirus-expired": 1,
+  "missing-antivirus": 2,
+  "antivirus-expiring": 3,
+  "outdated-os": 4,
+};
+
+function getHighestPriorityRisk(asset, outdatedWindows) {
+  const antivirusInstalled = asset.details.antivirusInstalled === true;
+  const days = Number(asset.details.remainingSubscriptionDays);
+  const outdatedOs = outdatedWindows.includes(asset.details.osInstalled);
+
+  if (antivirusInstalled && Number.isFinite(days) && days <= 0) {
+    return "antivirus-expired";
+  }
+
+  if (!antivirusInstalled) {
+    return "missing-antivirus";
+  }
+
+  if (Number.isFinite(days) && days > 0 && days <= 30) {
+    return "antivirus-expiring";
+  }
+
+  if (outdatedOs) {
+    return "outdated-os";
+  }
+
+  return null;
+}
+
 function buildSmartInsights(assets) {
   const computerAssets = assets.filter((asset) => asset.category === CATEGORY_CODES.COMPUTER);
   const outdatedWindows = ["Windows 7", "Windows 8", "Windows 8.1"];
@@ -238,18 +269,12 @@ function buildSmartInsights(assets) {
 
   const recommendations = [];
 
-  if (missingAntivirus.length > 0) {
-    recommendations.push(`Install antivirus on ${missingAntivirus.length} computer(s).`);
-  }
-
   if (antivirusExpired.length > 0) {
     recommendations.push(`Renew expired antivirus subscriptions for ${antivirusExpired.length} computer(s).`);
   }
 
-  if (outdatedOsComputers.length > 0) {
-    recommendations.push(
-      `Upgrade ${outdatedOsComputers.length} computer(s) running Windows 7/8/8.1.`
-    );
+  if (missingAntivirus.length > 0) {
+    recommendations.push(`Install antivirus on ${missingAntivirus.length} computer(s).`);
   }
 
   if (antivirusExpiringSoon.length > 0) {
@@ -258,9 +283,55 @@ function buildSmartInsights(assets) {
     );
   }
 
+  if (outdatedOsComputers.length > 0) {
+    recommendations.push(
+      `Upgrade ${outdatedOsComputers.length} computer(s) running Windows 7/8/8.1.`
+    );
+  }
+
   if (recommendations.length === 0) {
     recommendations.push("No immediate risk alerts. Inventory data looks healthy.");
   }
+
+  const riskAssets = computerAssets
+    .map((asset) => {
+      const risk = getHighestPriorityRisk(asset, outdatedWindows);
+      if (!risk) {
+        return null;
+      }
+
+      return {
+        id: asset.id,
+        category: CATEGORY_CONFIG[asset.category]?.label || asset.category,
+        model: asset.model,
+        assetNo: asset.assetNo,
+        serialNo: asset.serialNo,
+        status: asset.status,
+        osInstalled: asset.details.osInstalled || null,
+        remainingSubscriptionDays: asset.details.remainingSubscriptionDays ?? null,
+        antivirusInstalled: asset.details.antivirusInstalled,
+        risk,
+        priority: RISK_PRIORITY[risk],
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
+      }
+
+      const aDays = Number(a.remainingSubscriptionDays);
+      const bDays = Number(b.remainingSubscriptionDays);
+      const aHasDays = Number.isFinite(aDays);
+      const bHasDays = Number.isFinite(bDays);
+
+      if (aHasDays && bHasDays) {
+        return aDays - bDays;
+      }
+      if (aHasDays) return -1;
+      if (bHasDays) return 1;
+      return a.id - b.id;
+    });
 
   return {
     totals: {
@@ -272,17 +343,7 @@ function buildSmartInsights(assets) {
       outdatedOsComputers: outdatedOsComputers.length,
     },
     assetsByCategory,
-    riskAssets: [...missingAntivirus, ...antivirusExpired, ...antivirusExpiringSoon, ...outdatedOsComputers].map((asset) => ({
-      id: asset.id,
-      category: CATEGORY_CONFIG[asset.category]?.label || asset.category,
-      model: asset.model,
-      assetNo: asset.assetNo,
-      serialNo: asset.serialNo,
-      status: asset.status,
-      osInstalled: asset.details.osInstalled || null,
-      remainingSubscriptionDays: asset.details.remainingSubscriptionDays ?? null,
-      antivirusInstalled: asset.details.antivirusInstalled,
-    })),
+    riskAssets,
     recommendations,
   };
 }

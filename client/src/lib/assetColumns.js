@@ -59,6 +59,24 @@ export const CATEGORY_LIST_COLUMNS = {
   ],
 };
 
+export const RISK_PRIORITY = Object.freeze({
+  "antivirus-expired": 1,
+  "missing-antivirus": 2,
+  "antivirus-expiring": 3,
+  "outdated-os": 4,
+});
+
+export const RISK_LABELS = Object.freeze({
+  "antivirus-expired": "Antivirus Expired",
+  "missing-antivirus": "Missing Antivirus",
+  "antivirus-expiring": "Antivirus Expiring Soon",
+  "outdated-os": "Outdated OS",
+});
+
+export function getRiskLabelFromKey(riskKey) {
+  return RISK_LABELS[riskKey] || null;
+}
+
 export function getRiskLabel(asset) {
   if (asset.category !== "computer") {
     return null;
@@ -155,6 +173,8 @@ export function matchesRiskFilter(asset, riskFilter) {
   if (!riskFilter) return true;
   const label = getRiskLabel(asset);
   switch (riskFilter) {
+    case "at-risk":
+      return Boolean(label) && label !== "Healthy";
     case "missing-antivirus":
       return label === "Missing Antivirus";
     case "antivirus-expired":
@@ -166,4 +186,10 @@ export function matchesRiskFilter(asset, riskFilter) {
     default:
       return true;
   }
+}
+
+export function formatRiskFilterLabel(riskFilter) {
+  if (!riskFilter) return "";
+  if (riskFilter === "at-risk") return "All at-risk computers";
+  return getRiskLabelFromKey(riskFilter) || riskFilter.replace(/-/g, " ");
 }

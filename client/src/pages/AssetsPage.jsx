@@ -1,12 +1,12 @@
-import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Download, FileSpreadsheet, FileText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Download, FileSpreadsheet, FileText, FileUp, ShieldAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AssetTable } from "@/components/assets/AssetTable";
-import { ImportModal } from "@/components/import/ImportModal";
 import { useAuth } from "@/context/AuthContext";
 import { downloadReport } from "@/lib/api";
+import { formatRiskFilterLabel, matchesRiskFilter } from "@/lib/assetColumns";
 import { useCategories } from "@/hooks/useCategories";
 import { useAssets } from "@/hooks/useAssets";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -28,12 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -48,15 +43,15 @@ const ALL_STATUSES = [
 
 export function AssetsPage() {
   const { auth } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const riskFilter = searchParams.get("risk") || "";
 
   const { categories } = useCategories();
   const [categoryFilter, setCategoryFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
-  const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [activeCategoryTab, setActiveCategoryTab] = useState("");
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -71,12 +66,7 @@ export function AssetsPage() {
 
   const { assets, loading, reload } = useAssets(filters);
 
-  const assetsByCategory = useMemo(() => {
-    return categories.reduce((accumulator, category) => {
-      accumulator[category.code] = assets.filter((asset) => asset.category === category.code);
-      return accumulator;
-    }, {});
-  }, [assets, categories]);
+  const returnTo = riskFilter ? `/assets?risk=${riskFilter}` : "/assets";
 
   const visibleCategories = useMemo(() => {
     if (categoryFilter) {
@@ -84,6 +74,38 @@ export function AssetsPage() {
     }
     return categories;
   }, [categories, categoryFilter]);
+
+  useEffect(() => {
+    if (visibleCategories.length === 0) {
+      setActiveCategoryTab("");
+      return;
+    }
+    if (!visibleCategories.some((category) => category.code === activeCategoryTab)) {
+      setActiveCategoryTab(visibleCategories[0].code);
+    }
+  }, [visibleCategories, activeCategoryTab]);
+
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        void reload();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [reload]);
+
+  const assetsByCategory = useMemo(() => {
+    return categories.reduce((accumulator, category) => {
+      accumulator[category.code] = assets.filter((asset) => asset.category === category.code);
+      return accumulator;
+    }, {});
+  }, [assets, categories]);
+
+  const riskMatchCount = useMemo(() => {
+    if (!riskFilter) return 0;
+    return assets.filter((asset) => matchesRiskFilter(asset, riskFilter)).length;
+  }, [assets, riskFilter]);
 
   async function handleExport(format, exportFilters = filters) {
     setExporting(true);
@@ -109,16 +131,25 @@ export function AssetsPage() {
     }
   }
 
+  function clearRiskFilter() {
+    const next = new URLSearchParams(searchParams);
+    next.delete("risk");
+    setSearchParams(next);
+  }
+
   return (
-    <div>
+    <div className="space-y-5 animate-in-fade">
       <PageHeader
-        eyebrow="ICT Asset Tracker"
-        title="Asset Browser"
-        description="Search, filter, export, and manage all registered assets."
+        eyebrow="Inventory"
+        title="Assets"
+        description="Browse one category at a time. Export reports or jump to Import."
         actions={
           <>
-            <Button variant="outline" onClick={() => setImportOpen(true)}>
-              Import Data
+            <Button variant="outline" asChild>
+              <Link to="/import">
+                <FileUp className="h-4 w-4" />
+                Import
+              </Link>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -155,13 +186,27 @@ export function AssetsPage() {
       />
 
       {riskFilter && (
-        <div className="mb-4 flex items-center gap-2">
-          <Badge variant="secondary">Risk filter active</Badge>
-          <span className="text-sm text-muted-foreground">{riskFilter.replace(/-/g, " ")}</span>
+        <div className="flex flex-col gap-3 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-destructive text-white">
+              <ShieldAlert className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Needs action</p>
+              <p className="text-sm text-muted-foreground">
+                Showing {riskMatchCount} asset{riskMatchCount === 1 ? "" : "s"} for{" "}
+                <span className="font-medium text-foreground">{formatRiskFilterLabel(riskFilter)}</span>
+              </p>
+            </div>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={clearRiskFilter}>
+            <X className="h-4 w-4" />
+            Clear filter
+          </Button>
         </div>
       )}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-2">
           <Label htmlFor="filter-category">Category</Label>
           <Select
@@ -217,33 +262,37 @@ export function AssetsPage() {
       {visibleCategories.length === 0 ? (
         <p className="text-sm text-muted-foreground">No categories available.</p>
       ) : (
-        <Accordion type="multiple" defaultValue={visibleCategories.map((c) => c.code)} className="space-y-3">
-          {visibleCategories.map((category) => {
-            const categoryAssets = assetsByCategory[category.code] || [];
-            return (
-              <AccordionItem key={category.code} value={category.code} className="rounded-lg border px-4">
-                <AccordionTrigger className="hover:no-underline">
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold">{category.label}</span>
-                    <Badge variant="secondary">{categoryAssets.length}</Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <AssetTable
-                    category={category}
-                    assets={categoryAssets}
-                    loading={loading}
-                    onDeleted={reload}
-                    riskFilter={riskFilter}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            );
-          })}
-        </Accordion>
-      )}
+        <Tabs value={activeCategoryTab} onValueChange={setActiveCategoryTab}>
+          <TabsList className="h-auto min-h-10 w-full flex-wrap justify-start">
+            {visibleCategories.map((category) => {
+              const count = (assetsByCategory[category.code] || []).filter((asset) =>
+                matchesRiskFilter(asset, riskFilter)
+              ).length;
+              return (
+                <TabsTrigger key={category.code} value={category.code} className="gap-2">
+                  {category.label}
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                    {count}
+                  </Badge>
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
 
-      <ImportModal open={importOpen} onOpenChange={setImportOpen} categories={categories} onImported={reload} />
+          {visibleCategories.map((category) => (
+            <TabsContent key={category.code} value={category.code}>
+              <AssetTable
+                category={category}
+                assets={assetsByCategory[category.code] || []}
+                loading={loading}
+                onDeleted={reload}
+                riskFilter={riskFilter}
+                returnTo={returnTo}
+              />
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
     </div>
   );
 }

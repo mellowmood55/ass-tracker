@@ -25,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export function AssetTable({ category, assets, loading, onDeleted, riskFilter }) {
+export function AssetTable({ category, assets, loading, onDeleted, riskFilter, returnTo }) {
   const { auth } = useAuth();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
@@ -42,6 +42,14 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter })
 
   const totalPages = Math.max(1, Math.ceil(filteredAssets.length / PAGE_SIZE));
   const pageAssets = filteredAssets.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  function buildEditPath(assetId) {
+    const params = new URLSearchParams({ edit: String(assetId) });
+    if (returnTo) {
+      params.set("returnTo", returnTo);
+    }
+    return `/entry?${params.toString()}`;
+  }
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -70,9 +78,9 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter })
 
   if (filteredAssets.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-8 text-center">
+      <div className="rounded-xl border border-dashed p-8 text-center">
         <p className="text-sm text-muted-foreground">No records in this category.</p>
-        <Button variant="link" className="mt-2" onClick={() => navigate("/")}>
+        <Button variant="link" className="mt-2" onClick={() => navigate("/entry")}>
           Add an asset
         </Button>
       </div>
@@ -81,7 +89,7 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter })
 
   return (
     <>
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-xl border border-border/70">
         <Table>
           <TableHeader>
             <TableRow>
@@ -97,7 +105,7 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter })
             {pageAssets.map((asset) => {
               const riskLabel = getRiskLabel(asset);
               return (
-                <TableRow key={asset.id}>
+                <TableRow key={asset.id} className="transition-colors hover:bg-accent/40">
                   <TableCell className="font-medium">{asset.id}</TableCell>
                   {columns.map((column) => (
                     <TableCell key={`${asset.id}-${column.label}`}>{column.value(asset)}</TableCell>
@@ -115,7 +123,7 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter })
                         variant="ghost"
                         size="icon"
                         aria-label={`Edit asset ${asset.id}`}
-                        onClick={() => navigate(`/?edit=${asset.id}`)}
+                        onClick={() => navigate(buildEditPath(asset.id))}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
