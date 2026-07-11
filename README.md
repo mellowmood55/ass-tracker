@@ -1,7 +1,7 @@
 # ICT Asset Tracker (MVP)
 
-LAN-ready asset tracker for ICT teams with:
-- Local account login
+Cloud-ready asset tracker for ICT teams with:
+- Local account login (JWT)
 - Mobile-first tabbed UI (Dashboard, Entry, Import, Assets)
 - Category-driven input forms
 - Category-specific statuses and validation
@@ -9,12 +9,12 @@ LAN-ready asset tracker for ICT teams with:
 - Excel and PDF report exports
 - Stepped CSV/XLS/XLSX import with column mapping memory
 - Priority risk alerts (antivirus + outdated OS)
-- SQLite persistence
+- Neon Postgres persistence (shared across devices)
 - Basic audit trail
 
 ## Tech Stack
-- Backend: Node.js + Express + SQLite (better-sqlite3)
-- Frontend: React + Vite
+- Backend: Node.js + Express + Neon Postgres (`pg`)
+- Frontend: React + Vite (served by Express in production)
 
 ## Default Login
 - Username: admin
@@ -22,7 +22,21 @@ LAN-ready asset tracker for ICT teams with:
 
 Change this account password immediately for production use.
 
-## Quick start (both apps)
+## Neon setup (required)
+
+1. Create a project at [Neon](https://neon.tech).
+2. Copy the connection string (prefer the **pooled** URL).
+3. In `server/.env` (copy from `server/.env.example`):
+
+```env
+PORT=4000
+JWT_SECRET=replace-with-a-long-random-secret
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
+```
+
+On first start the server creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
+
+## Local development
 
 From the repo root:
 
@@ -35,20 +49,28 @@ npm run dev
 - Frontend: http://localhost:5173  
 - Backend: http://localhost:4000  
 
-### Run on a phone (same Wi‑Fi)
+Both use the same Neon database from `server/.env`, so data stays in sync across machines that share that `DATABASE_URL`.
 
-1. Find your PC LAN IP (e.g. `ipconfig` → IPv4, such as `192.168.100.37`).
-2. In `client/.env` set:
-   ```env
-   VITE_API_BASE=http://YOUR_LAN_IP:4000
-   ```
-3. From the repo root:
-   ```bash
-   npm run dev:lan
-   ```
-4. On the phone browser open `http://YOUR_LAN_IP:5173`.
+### Optional LAN UI (API still uses Neon)
 
-Allow Node/Vite through Windows Firewall for ports **4000** and **5173** if prompted.
+1. Find your PC LAN IP (`ipconfig` → IPv4).
+2. In `client/.env` set `VITE_API_BASE=http://YOUR_LAN_IP:4000`.
+3. Run `npm run dev:lan` and open `http://YOUR_LAN_IP:5173` on a phone on the same Wi‑Fi.
+
+## Deploy on Render (multi-device access)
+
+1. Push this repo to GitHub.
+2. Create a **Web Service** on [Render](https://render.com) from the repo.
+3. Settings:
+   - **Build command:** `npm run build`
+   - **Start command:** `npm start`
+   - **Environment:**
+     - `NODE_ENV=production`
+     - `DATABASE_URL` — Neon connection string
+     - `JWT_SECRET` — strong random secret
+4. Deploy, open the Render URL, and log in as `admin` / `admin123`.
+
+In production the API and UI share the same origin (`VITE_API_BASE` is empty), so any device can use the hosted URL.
 
 ## Run separately
 
@@ -69,11 +91,16 @@ npm run dev
 ```
 
 ## Environment
-Backend example env file:
-- `server/.env.example`
+Backend example: `server/.env.example`
 
-Optional frontend API override:
-- `VITE_API_BASE=http://localhost:4000` (use your LAN IP when testing on a phone)
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Neon Postgres connection string (required) |
+| `JWT_SECRET` | JWT signing secret |
+| `PORT` | API port (default `4000`) |
+| `NODE_ENV` | Set `production` on Render to serve the built UI |
+
+Optional frontend override for local/LAN: `VITE_API_BASE=http://localhost:4000`
 
 ## App tabs
 

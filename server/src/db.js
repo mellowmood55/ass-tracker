@@ -1,30 +1,59 @@
-const fs = require("fs");
 const path = require("path");
-const bcrypt = require("bcryptjs");
-const Database = require("better-sqlite3");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const dataDir = path.join(__dirname, "..", "data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+const bcrypt = require("bcryptjs");
+const { Pool } = require("pg");
+
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error(
+    "DATABASE_URL is required. Set it in server/.env (see server/.env.example)."
+  );
 }
 
-const dbPath = path.join(dataDir, "asset-tracker.db");
-const db = new Database(dbPath);
+const pool = new Pool({
+  connectionString: databaseUrl,
+  ssl: databaseUrl.includes("localhost")
+    ? false
+    : { rejectUnauthorized: false },
+});
 
-db.pragma("journal_mode = WAL");
+function isUniqueViolation(error) {
+  return error && error.code === "23505";
+}
 
-function initDb() {
-  db.exec(`
+async function query(text, params = []) {
+  return pool.query(text, params);
+}
+
+async function withTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function initDb() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'admin',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS assets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       category TEXT NOT NULL,
       location TEXT,
       office TEXT,
@@ -32,13 +61,14 @@ function initDb() {
       asset_no TEXT,
       serial_no TEXT,
       status TEXT NOT NULL,
-      details_json TEXT NOT NULL,
-      created_by INTEGER,
-      updated_by INTEGER,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(created_by) REFERENCES users(id),
-      FOREIGN KEY(updated_by) REFERENCES users(id)
+      details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by INTEGER REFERENCES users(id),
+      updated_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT assets_category_check CHECK (
+        category IN ('computer', 'software', 'ups', 'network', 'other', 'mobile', 'printer')
+      )
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_asset_no_unique
@@ -49,76 +79,36 @@ function initDb() {
     ON assets(serial_no)
     WHERE serial_no IS NOT NULL AND trim(serial_no) <> '';
 
-    CREATE TRIGGER IF NOT EXISTS trg_assets_category_insert
-    BEFORE INSERT ON assets
-    WHEN NEW.category NOT IN ('computer', 'software', 'ups', 'network', 'other', 'mobile', 'printer')
-    BEGIN
-      SELECT RAISE(ABORT, 'Invalid asset category');
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS trg_assets_category_update
-    BEFORE UPDATE OF category ON assets
-    WHEN NEW.category NOT IN ('computer', 'software', 'ups', 'network', 'other', 'mobile', 'printer')
-    BEGIN
-      SELECT RAISE(ABORT, 'Invalid asset category');
-    END;
-
     CREATE TABLE IF NOT EXISTS audit_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       asset_id INTEGER,
       action TEXT NOT NULL,
-      actor_id INTEGER,
+      actor_id INTEGER REFERENCES users(id),
       actor_username TEXT NOT NULL,
-      before_json TEXT,
-      after_json TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(actor_id) REFERENCES users(id)
+      before_json JSONB,
+      after_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  const auditFkList = db.prepare("PRAGMA foreign_key_list(audit_logs)").all();
-  const hasAssetForeignKey = auditFkList.some((row) => row.table === "assets");
+  const existingAdmin = await pool.query(
+    "SELECT id FROM users WHERE username = $1",
+    ["admin"]
+  );
 
-  if (hasAssetForeignKey) {
-    db.exec(`
-      PRAGMA foreign_keys = OFF;
-
-      CREATE TABLE IF NOT EXISTS audit_logs_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        asset_id INTEGER,
-        action TEXT NOT NULL,
-        actor_id INTEGER,
-        actor_username TEXT NOT NULL,
-        before_json TEXT,
-        after_json TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(actor_id) REFERENCES users(id)
-      );
-
-      INSERT INTO audit_logs_new (id, asset_id, action, actor_id, actor_username, before_json, after_json, created_at)
-      SELECT id, asset_id, action, actor_id, actor_username, before_json, after_json, created_at
-      FROM audit_logs;
-
-      DROP TABLE audit_logs;
-      ALTER TABLE audit_logs_new RENAME TO audit_logs;
-
-      PRAGMA foreign_keys = ON;
-    `);
-  }
-
-  const existingAdmin = db
-    .prepare("SELECT id FROM users WHERE username = ?")
-    .get("admin");
-
-  if (!existingAdmin) {
-    const hash = bcrypt.hashSync("admin123", 10);
-    db.prepare(
-      "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)"
-    ).run("admin", hash, "admin");
+  if (existingAdmin.rows.length === 0) {
+    const hash = await bcrypt.hash("admin123", 10);
+    await pool.query(
+      "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
+      ["admin", hash, "admin"]
+    );
   }
 }
 
 module.exports = {
-  db,
+  pool,
+  query,
+  withTransaction,
   initDb,
+  isUniqueViolation,
 };

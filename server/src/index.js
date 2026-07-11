@@ -1,3 +1,7 @@
+const path = require("path");
+const fs = require("fs");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -5,15 +9,14 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const { z } = require("zod");
 
-const { db, initDb } = require("./db");
+const { query, withTransaction, initDb, isUniqueViolation } = require("./db");
 const { signToken, requireAuth } = require("./auth");
 const { CATEGORY_CODES, CATEGORY_CONFIG, STATUS_BY_CATEGORY, normalizeImportRow } = require("./catalog");
 const { validateAssetPayload, collectBlankRequiredFields } = require("./validation");
 
-initDb();
-
 const app = express();
 const port = Number(process.env.PORT || 4000);
+const isProduction = process.env.NODE_ENV === "production";
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
@@ -22,7 +25,7 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const loginSchema = z.object({
     username: z.string().min(1),
     password: z.string().min(1),
@@ -34,23 +37,31 @@ app.post("/api/auth/login", (req, res) => {
   }
 
   const { username, password } = parsed.data;
-  const user = db
-    .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
-    .get(username);
 
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ message: "Invalid username or password." });
+  try {
+    const result = await query(
+      "SELECT id, username, password_hash, role FROM users WHERE username = $1",
+      [username]
+    );
+    const user = result.rows[0];
+
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      return res.status(401).json({ message: "Invalid username or password." });
+    }
+
+    const token = signToken(user);
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Login failed." });
   }
-
-  const token = signToken(user);
-  return res.json({
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-    },
-  });
 });
 
 app.get("/api/categories", requireAuth, (_req, res) => {
@@ -65,6 +76,16 @@ app.get("/api/categories", requireAuth, (_req, res) => {
   res.json({ categories });
 });
 
+function parseJsonField(value) {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value === "object") {
+    return value;
+  }
+  return JSON.parse(value);
+}
+
 function mapAssetRow(row) {
   return {
     id: row.id,
@@ -75,14 +96,18 @@ function mapAssetRow(row) {
     assetNo: row.asset_no,
     serialNo: row.serial_no,
     status: row.status,
-    details: JSON.parse(row.details_json || "{}"),
+    details: parseJsonField(row.details_json) || {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function insertAuditLog({ assetId, action, user, before, after }) {
-  db.prepare(
+async function insertAuditLog(clientOrNull, { assetId, action, user, before, after }) {
+  const runner = clientOrNull
+    ? (text, params) => clientOrNull.query(text, params)
+    : query;
+
+  await runner(
     `INSERT INTO audit_logs (
       asset_id,
       action,
@@ -90,37 +115,40 @@ function insertAuditLog({ assetId, action, user, before, after }) {
       actor_username,
       before_json,
       after_json
-    ) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(
-    assetId,
-    action,
-    user.sub,
-    user.username,
-    before ? JSON.stringify(before) : null,
-    after ? JSON.stringify(after) : null
+    ) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      assetId,
+      action,
+      user.sub,
+      user.username,
+      before ? JSON.stringify(before) : null,
+      after ? JSON.stringify(after) : null,
+    ]
   );
 }
 
-function getFilteredAssets(query) {
-  const { category, status, search } = query;
+async function getFilteredAssets(queryParams) {
+  const { category, status, search } = queryParams;
   const where = [];
   const params = [];
 
   if (category) {
-    where.push("category = ?");
     params.push(category);
+    where.push(`category = $${params.length}`);
   }
 
   if (status) {
-    where.push("status = ?");
     params.push(status);
+    where.push(`status = $${params.length}`);
   }
 
   if (search) {
-    where.push("(asset_no LIKE ? OR serial_no LIKE ? OR model LIKE ? OR office LIKE ? OR location LIKE ?)");
-    for (let i = 0; i < 5; i += 1) {
-      params.push(`%${search}%`);
-    }
+    const pattern = `%${search}%`;
+    const start = params.length + 1;
+    params.push(pattern, pattern, pattern, pattern, pattern);
+    where.push(
+      `(asset_no LIKE $${start} OR serial_no LIKE $${start + 1} OR model LIKE $${start + 2} OR office LIKE $${start + 3} OR location LIKE $${start + 4})`
+    );
   }
 
   const sql = `
@@ -130,7 +158,8 @@ function getFilteredAssets(query) {
     ORDER BY updated_at DESC, id DESC
   `;
 
-  return db.prepare(sql).all(...params).map(mapAssetRow);
+  const result = await query(sql, params);
+  return result.rows.map(mapAssetRow);
 }
 
 function getCategoryAssets(assets, categoryCode) {
@@ -348,103 +377,127 @@ function buildSmartInsights(assets) {
   };
 }
 
-app.get("/api/assets", requireAuth, (req, res) => {
-  const rows = getFilteredAssets(req.query);
-  res.json({ assets: rows });
+app.get("/api/assets", requireAuth, async (req, res) => {
+  try {
+    const rows = await getFilteredAssets(req.query);
+    res.json({ assets: rows });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to load assets." });
+  }
 });
 
-app.get("/api/insights", requireAuth, (req, res) => {
-  const assets = getFilteredAssets(req.query);
-  res.json(buildSmartInsights(assets));
+app.get("/api/insights", requireAuth, async (req, res) => {
+  try {
+    const assets = await getFilteredAssets(req.query);
+    res.json(buildSmartInsights(assets));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to load insights." });
+  }
 });
 
 app.get("/api/reports/assets.xlsx", requireAuth, async (req, res) => {
-  const assets = getFilteredAssets(req.query);
-  const workbook = new ExcelJS.Workbook();
-  const categories = Object.values(CATEGORY_CODES);
+  try {
+    const assets = await getFilteredAssets(req.query);
+    const workbook = new ExcelJS.Workbook();
+    const categories = Object.values(CATEGORY_CODES);
 
-  categories.forEach((categoryCode) => {
-    const categoryAssets = getCategoryAssets(assets, categoryCode);
-    if (categoryAssets.length === 0) {
-      return;
+    categories.forEach((categoryCode) => {
+      const categoryAssets = getCategoryAssets(assets, categoryCode);
+      if (categoryAssets.length === 0) {
+        return;
+      }
+
+      const worksheet = workbook.addWorksheet(CATEGORY_CONFIG[categoryCode]?.label || categoryCode);
+      const sampleRow = buildReportColumns(categoryAssets[0]);
+      const columns = Object.keys(sampleRow).map((key) => ({ header: key, key, width: 20 }));
+
+      worksheet.columns = columns;
+      worksheet.addRow(Object.keys(sampleRow).reduce((accumulator, key) => {
+        accumulator[key] = key;
+        return accumulator;
+      }, {}));
+
+      categoryAssets.forEach((asset) => {
+        worksheet.addRow(buildReportColumns(asset));
+      });
+    });
+
+    if (workbook.worksheets.length === 0) {
+      const worksheet = workbook.addWorksheet("Assets");
+      worksheet.addRow({ Notice: "No assets matched the current filters." });
     }
 
-    const worksheet = workbook.addWorksheet(CATEGORY_CONFIG[categoryCode]?.label || categoryCode);
-    const sampleRow = buildReportColumns(categoryAssets[0]);
-    const columns = Object.keys(sampleRow).map((key) => ({ header: key, key, width: 20 }));
-
-    worksheet.columns = columns;
-    worksheet.addRow(Object.keys(sampleRow).reduce((accumulator, key) => {
-      accumulator[key] = key;
-      return accumulator;
-    }, {}));
-
-    categoryAssets.forEach((asset) => {
-      worksheet.addRow(buildReportColumns(asset));
-    });
-  });
-
-  if (workbook.worksheets.length === 0) {
-    const worksheet = workbook.addWorksheet("Assets");
-    worksheet.addRow({ Notice: "No assets matched the current filters." });
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", "attachment; filename=asset-report.xlsx");
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error(error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Failed to generate Excel report." });
+    }
   }
-
-  res.setHeader(
-    "Content-Type",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  );
-  res.setHeader("Content-Disposition", "attachment; filename=asset-report.xlsx");
-  await workbook.xlsx.write(res);
-  res.end();
 });
 
-app.get("/api/reports/assets.pdf", requireAuth, (req, res) => {
-  const assets = getFilteredAssets(req.query);
-  const doc = new PDFDocument({ size: "A4", margin: 40 });
+app.get("/api/reports/assets.pdf", requireAuth, async (req, res) => {
+  try {
+    const assets = await getFilteredAssets(req.query);
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
 
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", "attachment; filename=asset-report.pdf");
-  doc.pipe(res);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=asset-report.pdf");
+    doc.pipe(res);
 
-  doc.rect(40, 40, 515, 28).fill("#1e4620");
-  doc.fillColor("#ffffff").fontSize(16).text("ICT Asset Report", 50, 47, { align: "left" });
-  doc.fillColor("#5c4033");
-  doc.moveDown(0.5);
-  doc.fontSize(10).fillColor("#555").text(`Generated: ${new Date().toISOString()}`);
-  doc.moveDown(1);
-
-  const groupedAssets = Object.values(CATEGORY_CODES).map((categoryCode) => ({
-    categoryCode,
-    items: getCategoryAssets(assets, categoryCode),
-  })).filter((group) => group.items.length > 0);
-
-  groupedAssets.forEach(({ categoryCode, items }) => {
-    if (doc.y > 700) {
-      doc.addPage();
-    }
-
-    doc.rect(40, doc.y, 515, 18).fill("#1e4620");
-    doc.fillColor("#ffffff").fontSize(12).text(CATEGORY_CONFIG[categoryCode]?.label || categoryCode, 48, doc.y + 4);
+    doc.rect(40, 40, 515, 28).fill("#1e4620");
+    doc.fillColor("#ffffff").fontSize(16).text("ICT Asset Report", 50, 47, { align: "left" });
     doc.fillColor("#5c4033");
+    doc.moveDown(0.5);
+    doc.fontSize(10).fillColor("#555").text(`Generated: ${new Date().toISOString()}`);
     doc.moveDown(1);
 
-    items.forEach((asset) => {
-      if (doc.y > 740) {
+    const groupedAssets = Object.values(CATEGORY_CODES).map((categoryCode) => ({
+      categoryCode,
+      items: getCategoryAssets(assets, categoryCode),
+    })).filter((group) => group.items.length > 0);
+
+    groupedAssets.forEach(({ categoryCode, items }) => {
+      if (doc.y > 700) {
         doc.addPage();
       }
 
-      const row = buildReportColumns(asset);
-      Object.entries(row).forEach(([key, value]) => {
-        doc.fontSize(9).fillColor("#5c4033").text(`${key}: ${String(value)}`);
-      });
-      doc.moveDown(0.6);
-    });
-  });
+      doc.rect(40, doc.y, 515, 18).fill("#1e4620");
+      doc.fillColor("#ffffff").fontSize(12).text(CATEGORY_CONFIG[categoryCode]?.label || categoryCode, 48, doc.y + 4);
+      doc.fillColor("#5c4033");
+      doc.moveDown(1);
 
-  doc.end();
+      items.forEach((asset) => {
+        if (doc.y > 740) {
+          doc.addPage();
+        }
+
+        const row = buildReportColumns(asset);
+        Object.entries(row).forEach(([key, value]) => {
+          doc.fontSize(9).fillColor("#5c4033").text(`${key}: ${String(value)}`);
+        });
+        doc.moveDown(0.6);
+      });
+    });
+
+    doc.end();
+  } catch (error) {
+    console.error(error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Failed to generate PDF report." });
+    }
+  }
 });
 
-app.post("/api/assets", requireAuth, (req, res) => {
+app.post("/api/assets", requireAuth, async (req, res) => {
   const result = validateAssetPayload(req.body);
   if (!result.valid) {
     return res.status(400).json({ message: "Validation failed.", errors: result.errors });
@@ -453,22 +506,21 @@ app.post("/api/assets", requireAuth, (req, res) => {
   const asset = result.data;
 
   try {
-    const insertResult = db
-      .prepare(
-        `INSERT INTO assets (
-          category,
-          location,
-          office,
-          model,
-          asset_no,
-          serial_no,
-          status,
-          details_json,
-          created_by,
-          updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
+    const insertResult = await query(
+      `INSERT INTO assets (
+        category,
+        location,
+        office,
+        model,
+        asset_no,
+        serial_no,
+        status,
+        details_json,
+        created_by,
+        updated_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+      RETURNING *`,
+      [
         asset.category,
         asset.location || null,
         asset.office || null,
@@ -478,94 +530,120 @@ app.post("/api/assets", requireAuth, (req, res) => {
         asset.status,
         JSON.stringify(asset.details || {}),
         req.user.sub,
-        req.user.sub
-      );
+        req.user.sub,
+      ]
+    );
 
-    const createdRow = db.prepare("SELECT * FROM assets WHERE id = ?").get(insertResult.lastInsertRowid);
-    const mapped = mapAssetRow(createdRow);
-    insertAuditLog({ assetId: mapped.id, action: "create", user: req.user, before: null, after: mapped });
+    const mapped = mapAssetRow(insertResult.rows[0]);
+    await insertAuditLog(null, {
+      assetId: mapped.id,
+      action: "create",
+      user: req.user,
+      before: null,
+      after: mapped,
+    });
     return res.status(201).json({ asset: mapped });
   } catch (error) {
-    if (String(error.message).includes("UNIQUE constraint failed")) {
+    if (isUniqueViolation(error)) {
       return res.status(409).json({ message: "Asset No or Serial No already exists." });
     }
+    console.error(error);
     return res.status(500).json({ message: "Failed to create asset." });
   }
 });
 
-app.put("/api/assets/:id", requireAuth, (req, res) => {
+app.put("/api/assets/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare("SELECT * FROM assets WHERE id = ?").get(id);
-  if (!existing) {
-    return res.status(404).json({ message: "Asset not found." });
-  }
-
-  const result = validateAssetPayload(req.body);
-  if (!result.valid) {
-    return res.status(400).json({ message: "Validation failed.", errors: result.errors });
-  }
-
-  const asset = result.data;
 
   try {
-    db.prepare(
+    const existingResult = await query("SELECT * FROM assets WHERE id = $1", [id]);
+    const existing = existingResult.rows[0];
+    if (!existing) {
+      return res.status(404).json({ message: "Asset not found." });
+    }
+
+    const result = validateAssetPayload(req.body);
+    if (!result.valid) {
+      return res.status(400).json({ message: "Validation failed.", errors: result.errors });
+    }
+
+    const asset = result.data;
+
+    const updateResult = await query(
       `UPDATE assets
-       SET category = ?,
-           location = ?,
-           office = ?,
-           model = ?,
-           asset_no = ?,
-           serial_no = ?,
-           status = ?,
-           details_json = ?,
-           updated_by = ?,
+       SET category = $1,
+           location = $2,
+           office = $3,
+           model = $4,
+           asset_no = $5,
+           serial_no = $6,
+           status = $7,
+           details_json = $8::jsonb,
+           updated_by = $9,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`
-    ).run(
-      asset.category,
-      asset.location || null,
-      asset.office || null,
-      asset.model || null,
-      asset.assetNo || null,
-      asset.serialNo || null,
-      asset.status,
-      JSON.stringify(asset.details || {}),
-      req.user.sub,
-      id
+       WHERE id = $10
+       RETURNING *`,
+      [
+        asset.category,
+        asset.location || null,
+        asset.office || null,
+        asset.model || null,
+        asset.assetNo || null,
+        asset.serialNo || null,
+        asset.status,
+        JSON.stringify(asset.details || {}),
+        req.user.sub,
+        id,
+      ]
     );
 
-    const updatedRow = db.prepare("SELECT * FROM assets WHERE id = ?").get(id);
     const before = mapAssetRow(existing);
-    const after = mapAssetRow(updatedRow);
-    insertAuditLog({ assetId: id, action: "update", user: req.user, before, after });
+    const after = mapAssetRow(updateResult.rows[0]);
+    await insertAuditLog(null, {
+      assetId: id,
+      action: "update",
+      user: req.user,
+      before,
+      after,
+    });
 
     return res.json({ asset: after });
   } catch (error) {
-    if (String(error.message).includes("UNIQUE constraint failed")) {
+    if (isUniqueViolation(error)) {
       return res.status(409).json({ message: "Asset No or Serial No already exists." });
     }
+    console.error(error);
     return res.status(500).json({ message: "Failed to update asset." });
   }
 });
 
-app.delete("/api/assets/:id", requireAuth, (req, res) => {
+app.delete("/api/assets/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare("SELECT * FROM assets WHERE id = ?").get(id);
-
-  if (!existing) {
-    return res.status(404).json({ message: "Asset not found." });
-  }
 
   try {
-    db.prepare("DELETE FROM assets WHERE id = ?").run(id);
-    insertAuditLog({ assetId: id, action: "delete", user: req.user, before: mapAssetRow(existing), after: null });
+    const existingResult = await query("SELECT * FROM assets WHERE id = $1", [id]);
+    const existing = existingResult.rows[0];
+
+    if (!existing) {
+      return res.status(404).json({ message: "Asset not found." });
+    }
+
+    await query("DELETE FROM assets WHERE id = $1", [id]);
+    await insertAuditLog(null, {
+      assetId: id,
+      action: "delete",
+      user: req.user,
+      before: mapAssetRow(existing),
+      after: null,
+    });
     return res.status(204).send();
   } catch (error) {
+    console.error(error);
     return res.status(500).json({ message: "Failed to delete asset." });
   }
 });
 
-app.post("/api/assets/import", requireAuth, (req, res) => {
+app.post("/api/assets/import", requireAuth, async (req, res) => {
   const importSchema = z.object({
     category: z.string().min(1),
     rows: z.array(z.record(z.string(), z.unknown())).min(1),
@@ -582,145 +660,149 @@ app.post("/api/assets/import", requireAuth, (req, res) => {
     return res.status(400).json({ message: `Unknown category '${category}'.` });
   }
 
-  const findByAssetNo = db.prepare(
-    `SELECT id, asset_no, serial_no FROM assets WHERE asset_no IS NOT NULL AND trim(asset_no) <> '' AND asset_no = ?`
-  );
-  const findBySerialNo = db.prepare(
-    `SELECT id, asset_no, serial_no FROM assets WHERE serial_no IS NOT NULL AND trim(serial_no) <> '' AND serial_no = ?`
-  );
+  try {
+    const { created, needsAttention, skipped } = await withTransaction(async (client) => {
+      const createdRows = [];
+      const attention = [];
+      let skippedCount = 0;
+      const seenAssetNos = new Set();
+      const seenSerialNos = new Set();
 
-  const insertAsset = db.prepare(
-    `INSERT INTO assets (
-      category,
-      location,
-      office,
-      model,
-      asset_no,
-      serial_no,
-      status,
-      details_json,
-      created_by,
-      updated_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = normalizeImportRow(rows[index], category);
+        const payload = {
+          category,
+          location: row.location || null,
+          office: row.office || null,
+          model: row.model || null,
+          assetNo: row.assetNo || null,
+          serialNo: row.serialNo || null,
+          status: row.status,
+          details: row.details || {},
+        };
 
-  const importTransaction = db.transaction((importRows) => {
-    const created = [];
-    const needsAttention = [];
-    let skipped = 0;
-    const seenAssetNos = new Set();
-    const seenSerialNos = new Set();
+        const blankFields = collectBlankRequiredFields(payload);
 
-    for (let index = 0; index < importRows.length; index += 1) {
-      const row = normalizeImportRow(importRows[index], category);
-      const payload = {
-        category,
-        location: row.location || null,
-        office: row.office || null,
-        model: row.model || null,
-        assetNo: row.assetNo || null,
-        serialNo: row.serialNo || null,
-        status: row.status,
-        details: row.details || {},
-      };
+        const result = validateAssetPayload(payload, { mode: "import", allowMissingLocation: true });
+        if (!result.valid) {
+          throw new Error(`Row ${index + 1}: ${result.errors.join(" ")}`);
+        }
 
-      // Capture blanks before import validation applies provisional defaults (e.g. status).
-      const blankFields = collectBlankRequiredFields(payload);
+        const asset = result.data;
+        const assetNo = asset.assetNo || null;
+        const serialNo = asset.serialNo || null;
+        const duplicateFields = [];
+        let existingId = null;
 
-      const result = validateAssetPayload(payload, { mode: "import", allowMissingLocation: true });
-      if (!result.valid) {
-        throw new Error(`Row ${index + 1}: ${result.errors.join(" ")}`);
-      }
-
-      const asset = result.data;
-      const assetNo = asset.assetNo || null;
-      const serialNo = asset.serialNo || null;
-      const duplicateFields = [];
-      let existingId = null;
-
-      if (assetNo) {
-        if (seenAssetNos.has(assetNo)) {
-          duplicateFields.push("Asset No");
-        } else {
-          const existing = findByAssetNo.get(assetNo);
-          if (existing) {
+        if (assetNo) {
+          if (seenAssetNos.has(assetNo)) {
             duplicateFields.push("Asset No");
-            existingId = existing.id;
+          } else {
+            const existing = await client.query(
+              `SELECT id, asset_no, serial_no FROM assets
+               WHERE asset_no IS NOT NULL AND trim(asset_no) <> '' AND asset_no = $1`,
+              [assetNo]
+            );
+            if (existing.rows[0]) {
+              duplicateFields.push("Asset No");
+              existingId = existing.rows[0].id;
+            }
           }
         }
-      }
 
-      if (serialNo) {
-        if (seenSerialNos.has(serialNo)) {
-          if (!duplicateFields.includes("Serial No")) {
-            duplicateFields.push("Serial No");
-          }
-        } else {
-          const existing = findBySerialNo.get(serialNo);
-          if (existing) {
+        if (serialNo) {
+          if (seenSerialNos.has(serialNo)) {
             if (!duplicateFields.includes("Serial No")) {
               duplicateFields.push("Serial No");
             }
-            if (existingId == null) {
-              existingId = existing.id;
+          } else {
+            const existing = await client.query(
+              `SELECT id, asset_no, serial_no FROM assets
+               WHERE serial_no IS NOT NULL AND trim(serial_no) <> '' AND serial_no = $1`,
+              [serialNo]
+            );
+            if (existing.rows[0]) {
+              if (!duplicateFields.includes("Serial No")) {
+                duplicateFields.push("Serial No");
+              }
+              if (existingId == null) {
+                existingId = existing.rows[0].id;
+              }
             }
           }
         }
-      }
 
-      if (duplicateFields.length > 0) {
-        skipped += 1;
-        needsAttention.push({
-          row: index + 1,
-          reason: "duplicate",
-          id: existingId,
-          assetNo,
-          serialNo,
-          blankFields: [],
-          duplicateFields,
-          existingId,
+        if (duplicateFields.length > 0) {
+          skippedCount += 1;
+          attention.push({
+            row: index + 1,
+            reason: "duplicate",
+            id: existingId,
+            assetNo,
+            serialNo,
+            blankFields: [],
+            duplicateFields,
+            existingId,
+          });
+          continue;
+        }
+
+        if (assetNo) seenAssetNos.add(assetNo);
+        if (serialNo) seenSerialNos.add(serialNo);
+
+        const insertResult = await client.query(
+          `INSERT INTO assets (
+            category,
+            location,
+            office,
+            model,
+            asset_no,
+            serial_no,
+            status,
+            details_json,
+            created_by,
+            updated_by
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+          RETURNING *`,
+          [
+            asset.category,
+            asset.location || null,
+            asset.office || null,
+            asset.model || null,
+            assetNo,
+            serialNo,
+            asset.status,
+            JSON.stringify(asset.details || {}),
+            req.user.sub,
+            req.user.sub,
+          ]
+        );
+
+        const mapped = mapAssetRow(insertResult.rows[0]);
+        await insertAuditLog(client, {
+          assetId: mapped.id,
+          action: "create",
+          user: req.user,
+          before: null,
+          after: mapped,
         });
-        continue;
+        createdRows.push(mapped);
+
+        if (blankFields.length > 0) {
+          attention.push({
+            row: index + 1,
+            reason: "blank",
+            id: mapped.id,
+            assetNo: mapped.assetNo || null,
+            serialNo: mapped.serialNo || null,
+            blankFields,
+          });
+        }
       }
 
-      if (assetNo) seenAssetNos.add(assetNo);
-      if (serialNo) seenSerialNos.add(serialNo);
+      return { created: createdRows, needsAttention: attention, skipped: skippedCount };
+    });
 
-      const insertResult = insertAsset.run(
-        asset.category,
-        asset.location || null,
-        asset.office || null,
-        asset.model || null,
-        assetNo,
-        serialNo,
-        asset.status,
-        JSON.stringify(asset.details || {}),
-        req.user.sub,
-        req.user.sub
-      );
-
-      const createdRow = db.prepare("SELECT * FROM assets WHERE id = ?").get(insertResult.lastInsertRowid);
-      const mapped = mapAssetRow(createdRow);
-      insertAuditLog({ assetId: mapped.id, action: "create", user: req.user, before: null, after: mapped });
-      created.push(mapped);
-
-      if (blankFields.length > 0) {
-        needsAttention.push({
-          row: index + 1,
-          reason: "blank",
-          id: mapped.id,
-          assetNo: mapped.assetNo || null,
-          serialNo: mapped.serialNo || null,
-          blankFields,
-        });
-      }
-    }
-
-    return { created, needsAttention, skipped };
-  });
-
-  try {
-    const { created, needsAttention, skipped } = importTransaction(rows);
     return res.status(201).json({
       imported: created.length,
       skipped,
@@ -734,27 +816,49 @@ app.post("/api/assets/import", requireAuth, (req, res) => {
   }
 });
 
-app.get("/api/assets/:id/audit", requireAuth, (req, res) => {
+app.get("/api/assets/:id/audit", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const logs = db
-    .prepare(
+
+  try {
+    const result = await query(
       `SELECT id, action, actor_username, before_json, after_json, created_at
        FROM audit_logs
-       WHERE asset_id = ?
-       ORDER BY id DESC`
-    )
-    .all(id)
-    .map((row) => ({
+       WHERE asset_id = $1
+       ORDER BY id DESC`,
+      [id]
+    );
+
+    const logs = result.rows.map((row) => ({
       id: row.id,
       action: row.action,
       actorUsername: row.actor_username,
-      before: row.before_json ? JSON.parse(row.before_json) : null,
-      after: row.after_json ? JSON.parse(row.after_json) : null,
+      before: parseJsonField(row.before_json),
+      after: parseJsonField(row.after_json),
       createdAt: row.created_at,
     }));
 
-  res.json({ logs });
+    res.json({ logs });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to load audit logs." });
+  }
 });
+
+if (isProduction) {
+  const clientDist = path.join(__dirname, "..", "..", "client", "dist");
+  if (fs.existsSync(clientDist)) {
+    app.use(express.static(clientDist));
+    app.use((req, res, next) => {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        return next();
+      }
+      if (req.path.startsWith("/api")) {
+        return next();
+      }
+      return res.sendFile(path.join(clientDist, "index.html"));
+    });
+  }
+}
 
 app.use((err, _req, res, _next) => {
   console.error(err);
@@ -764,6 +868,14 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Internal server error." });
 });
 
-app.listen(port, () => {
-  console.log(`Asset tracker API running on port ${port}`);
+async function start() {
+  await initDb();
+  app.listen(port, () => {
+    console.log(`Asset tracker API running on port ${port}`);
+  });
+}
+
+start().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
 });
