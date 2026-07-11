@@ -33,11 +33,13 @@ ass-tracker/
 
 Change this account password immediately for production use.
 
-## Neon setup (required)
+## How to run (new setup)
+
+### 1. Neon env (required)
 
 1. Create a project at [Neon](https://neon.tech).
-2. Copy the connection string (prefer the **pooled** URL).
-3. In `apps/api/.env` (copy from `apps/api/.env.example`):
+2. Copy the **pooled** connection string from the Neon dashboard.
+3. Create `apps/api/.env` (copy from `apps/api/.env.example`):
 
 ```env
 PORT=4000
@@ -45,22 +47,32 @@ JWT_SECRET=replace-with-a-long-random-secret
 DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 ```
 
-On first start the API creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
+Without `DATABASE_URL`, the API will refuse to start. On first start the API creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
 
-## Local development
+### 2. Install and start (from repo root)
 
-From the repo root:
-
-```bash
+```powershell
 npm run install:all
 npm install
 npm run dev
 ```
 
-- Frontend: http://localhost:5173  
-- Backend: http://localhost:4000  
+Then open:
+- UI: http://localhost:5173
+- API: http://localhost:4000
 
-Both use the same Neon database from `apps/api/.env`, so data stays in sync across machines that share that `DATABASE_URL`.
+Login: **admin** / **admin123** (empty inventory on first start).
+
+Both apps use the same Neon database from `apps/api/.env`, so data stays in sync across machines that share that `DATABASE_URL`.
+
+### 3. If something fails
+
+| Symptom | Fix |
+|--------|-----|
+| `DATABASE_URL is required` | Add `apps/api/.env` with a real Neon URL |
+| Connection / SSL errors | Use Neon’s pooled URL and keep `?sslmode=require` |
+| Old `server/` or `client/` paths | Use `apps/api` and `apps/web` only |
+| Port in use | Stop the old process or change `PORT` in `.env` |
 
 ### Optional LAN UI (API still uses Neon)
 
