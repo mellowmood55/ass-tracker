@@ -1,8 +1,8 @@
 node_modules/
-client/node_modules/
-server/node_modules/
-client/dist/
-server/dist/
+apps/web/node_modules/
+apps/api/node_modules/
+apps/web/dist/
+apps/api/dist/
 .env
 .env.*
 !.env.example
@@ -10,4 +10,3 @@ server/dist/
 *.db
 *.db-shm
 *.db-wal
-server/data/

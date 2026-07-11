@@ -13,8 +13,19 @@ Cloud-ready asset tracker for ICT teams with:
 - Basic audit trail
 
 ## Tech Stack
-- Backend: Node.js + Express + Neon Postgres (`pg`)
-- Frontend: React + Vite (served by Express in production)
+- Backend: Node.js + Express + Neon Postgres (`pg`) — `apps/api`
+- Frontend: React + Vite (served by Express in production) — `apps/web`
+
+## Project structure
+
+```text
+ass-tracker/
+  apps/
+    api/          Express API + Neon Postgres
+    web/          React + Vite UI
+  package.json    Root scripts (dev, build, start)
+  render.yaml     Render deploy config
+```
 
 ## Default Login
 - Username: admin
@@ -26,7 +37,7 @@ Change this account password immediately for production use.
 
 1. Create a project at [Neon](https://neon.tech).
 2. Copy the connection string (prefer the **pooled** URL).
-3. In `server/.env` (copy from `server/.env.example`):
+3. In `apps/api/.env` (copy from `apps/api/.env.example`):
 
 ```env
 PORT=4000
@@ -34,7 +45,7 @@ JWT_SECRET=replace-with-a-long-random-secret
 DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 ```
 
-On first start the server creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
+On first start the API creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
 
 ## Local development
 
@@ -49,12 +60,12 @@ npm run dev
 - Frontend: http://localhost:5173  
 - Backend: http://localhost:4000  
 
-Both use the same Neon database from `server/.env`, so data stays in sync across machines that share that `DATABASE_URL`.
+Both use the same Neon database from `apps/api/.env`, so data stays in sync across machines that share that `DATABASE_URL`.
 
 ### Optional LAN UI (API still uses Neon)
 
 1. Find your PC LAN IP (`ipconfig` → IPv4).
-2. In `client/.env` set `VITE_API_BASE=http://YOUR_LAN_IP:4000`.
+2. In `apps/web/.env` set `VITE_API_BASE=http://YOUR_LAN_IP:4000`.
 3. Run `npm run dev:lan` and open `http://YOUR_LAN_IP:5173` on a phone on the same Wi‑Fi.
 
 ## Deploy on Render (multi-device access)
@@ -74,24 +85,24 @@ In production the API and UI share the same origin (`VITE_API_BASE` is empty), s
 
 ## Run separately
 
-**Backend**
+**API**
 
 ```bash
-cd server
+cd apps/api
 npm install
 npm run dev
 ```
 
-**Frontend**
+**Web**
 
 ```bash
-cd client
+cd apps/web
 npm install
 npm run dev
 ```
 
 ## Environment
-Backend example: `server/.env.example`
+Backend example: `apps/api/.env.example`
 
 | Variable | Purpose |
 |----------|---------|

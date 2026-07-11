@@ -845,9 +845,9 @@ app.get("/api/assets/:id/audit", requireAuth, async (req, res) => {
 });
 
 if (isProduction) {
-  const clientDist = path.join(__dirname, "..", "..", "client", "dist");
-  if (fs.existsSync(clientDist)) {
-    app.use(express.static(clientDist));
+  const webDist = path.join(__dirname, "..", "..", "web", "dist");
+  if (fs.existsSync(webDist)) {
+    app.use(express.static(webDist));
     app.use((req, res, next) => {
       if (req.method !== "GET" && req.method !== "HEAD") {
         return next();
@@ -855,7 +855,7 @@ if (isProduction) {
       if (req.path.startsWith("/api")) {
         return next();
       }
-      return res.sendFile(path.join(clientDist, "index.html"));
+      return res.sendFile(path.join(webDist, "index.html"));
     });
   }
 }

@@ -8,7 +8,7 @@ const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
   throw new Error(
-    "DATABASE_URL is required. Set it in server/.env (see server/.env.example)."
+    "DATABASE_URL is required. Set it in apps/api/.env (see apps/api/.env.example)."
   );
 }
 

@@ -4,11 +4,11 @@
   "version": "1.0.0",
   "description": "ICT Asset Tracker — cloud-ready inventory for ICT teams",
   "scripts": {
-    "dev": "concurrently -n server,client -c green,cyan \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
-    "dev:lan": "concurrently -n server,client -c green,cyan \"npm run dev --prefix server\" \"npm run dev --prefix client -- --host\"",
-    "install:all": "npm install --prefix server && npm install --prefix client",
-    "build": "npm run install:all && npm run build --prefix client",
-    "start": "npm start --prefix server"
+    "dev": "concurrently -n api,web -c green,cyan \"npm run dev --prefix apps/api\" \"npm run dev --prefix apps/web\"",
+    "dev:lan": "concurrently -n api,web -c green,cyan \"npm run dev --prefix apps/api\" \"npm run dev --prefix apps/web -- --host\"",
+    "install:all": "npm install --prefix apps/api && npm install --prefix apps/web",
+    "build": "npm run install:all && npm run build --prefix apps/web",
+    "start": "npm start --prefix apps/api"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
