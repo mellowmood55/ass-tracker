@@ -50,7 +50,7 @@ export function LoginPage() {
           <p className="text-xs font-semibold uppercase tracking-wider text-primary">ICT Asset Tracker</p>
           <CardTitle className="text-2xl">Sign in to continue</CardTitle>
           <CardDescription>
-            Default credentials for first startup: admin / admin123
+            Use the administrator account configured for this deployment.
           </CardDescription>
         </CardHeader>
         <CardContent>

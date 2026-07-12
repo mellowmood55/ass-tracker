@@ -27,11 +27,12 @@ ass-tracker/
   render.yaml     Render deploy config
 ```
 
-## Default Login
-- Username: admin
-- Password: admin123
+## Initial Admin Login
+Fresh databases create one administrator account on first API startup.
 
-Change this account password immediately for production use.
+- `ADMIN_USERNAME` defaults to `admin` when unset.
+- `ADMIN_PASSWORD` is required in production and must not be `admin123`.
+- Local development can omit `ADMIN_PASSWORD` to use `admin` / `admin123`.
 
 ## How to run (new setup)
 
@@ -44,10 +45,12 @@ Change this account password immediately for production use.
 ```env
 PORT=4000
 JWT_SECRET=replace-with-a-long-random-secret
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-secure-admin-password
 DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 ```
 
-Without `DATABASE_URL`, the API will refuse to start. On first start the API creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
+Without `DATABASE_URL`, the API will refuse to start. In production, `JWT_SECRET` and `ADMIN_PASSWORD` must be non-default values. On first start the API creates tables and seeds `ADMIN_USERNAME` with `ADMIN_PASSWORD` if that user is missing. Existing SQLite files are not used or migrated.
 
 ### 2. Install and start (from repo root)
 
@@ -61,7 +64,7 @@ Then open:
 - UI: http://localhost:5173
 - API: http://localhost:4000
 
-Login: **admin** / **admin123** (empty inventory on first start).
+Login with the configured `ADMIN_USERNAME` and `ADMIN_PASSWORD` (empty inventory on first start).
 
 Both apps use the same Neon database from `apps/api/.env`, so data stays in sync across machines that share that `DATABASE_URL`.
 
@@ -91,7 +94,9 @@ Both apps use the same Neon database from `apps/api/.env`, so data stays in sync
      - `NODE_ENV=production`
      - `DATABASE_URL` — Neon connection string
      - `JWT_SECRET` — strong random secret
-4. Deploy, open the Render URL, and log in as `admin` / `admin123`.
+     - `ADMIN_USERNAME` — initial administrator username (defaults to `admin`)
+     - `ADMIN_PASSWORD` — initial administrator password
+4. Deploy, open the Render URL, and log in with the configured administrator credentials.
 
 In production the API and UI share the same origin (`VITE_API_BASE` is empty), so any device can use the hosted URL.
 
@@ -120,6 +125,8 @@ Backend example: `apps/api/.env.example`
 |----------|---------|
 | `DATABASE_URL` | Neon Postgres connection string (required) |
 | `JWT_SECRET` | JWT signing secret |
+| `ADMIN_USERNAME` | Username for the initial admin account (default `admin`) |
+| `ADMIN_PASSWORD` | Password for the initial admin account (required and non-default in production) |
 | `PORT` | API port (default `4000`) |
 | `NODE_ENV` | Set `production` on Render to serve the built UI |
 

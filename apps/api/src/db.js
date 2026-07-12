@@ -3,6 +3,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const bcrypt = require("bcryptjs");
 const { Pool } = require("pg");
+const { getInitialAdminCredentials, getInitialAdminUsername } = require("./config");
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -91,16 +92,18 @@ async function initDb() {
     );
   `);
 
+  const initialAdminUsername = getInitialAdminUsername();
   const existingAdmin = await pool.query(
     "SELECT id FROM users WHERE username = $1",
-    ["admin"]
+    [initialAdminUsername]
   );
 
   if (existingAdmin.rows.length === 0) {
-    const hash = await bcrypt.hash("admin123", 10);
+    const { username, password } = getInitialAdminCredentials();
+    const hash = await bcrypt.hash(password, 10);
     await pool.query(
       "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
-      ["admin", hash, "admin"]
+      [username, hash, "admin"]
     );
   }
 }
