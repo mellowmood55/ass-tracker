@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { History, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,7 +35,7 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
   const { auth } = useAuth();
   const { bump } = useDataRefresh();
   const navigate = useNavigate();
-  const [page, setPage] = useState(1);
+  const [pagesByAssetSet, setPagesByAssetSet] = useState({});
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [auditAsset, setAuditAsset] = useState(null);
@@ -47,12 +47,21 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
     [assets, riskFilter]
   );
 
-  useEffect(() => {
-    setPage(1);
-  }, [riskFilter, category.code, assets.length]);
-
   const totalPages = Math.max(1, Math.ceil(filteredAssets.length / PAGE_SIZE));
+  const paginationKey = `${category.code}:${riskFilter || "all"}:${assets.length}`;
+  const page = Math.min(pagesByAssetSet[paginationKey] || 1, totalPages);
   const pageAssets = filteredAssets.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  function setPageForCurrentAssetSet(updater) {
+    setPagesByAssetSet((current) => {
+      const currentPage = current[paginationKey] || 1;
+      const nextPage = typeof updater === "function" ? updater(currentPage) : updater;
+      return {
+        ...current,
+        [paginationKey]: Math.min(Math.max(1, nextPage), totalPages),
+      };
+    });
+  }
 
   function buildEditPath(assetId) {
     const params = new URLSearchParams({ edit: String(assetId) });
@@ -105,14 +114,19 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
         Page {page} of {totalPages} ({filteredAssets.length} assets)
       </span>
       <div className="flex gap-2">
-        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => setPageForCurrentAssetSet((p) => p - 1)}
+        >
           Previous
         </Button>
         <Button
           variant="outline"
           size="sm"
           disabled={page >= totalPages}
-          onClick={() => setPage((p) => p + 1)}
+          onClick={() => setPageForCurrentAssetSet((p) => p + 1)}
         >
           Next
         </Button>

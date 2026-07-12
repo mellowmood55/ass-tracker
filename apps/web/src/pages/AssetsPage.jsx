@@ -85,18 +85,19 @@ export function AssetsPage() {
     return categories;
   }, [categories, categoryFilter]);
 
-  useEffect(() => {
+  const selectedCategoryTab = useMemo(() => {
     if (visibleCategories.length === 0) {
-      setActiveCategoryTab("");
-      return;
+      return "";
     }
-    if (!visibleCategories.some((category) => category.code === activeCategoryTab)) {
-      const stored = readStoredCategoryTab();
-      const next = visibleCategories.some((category) => category.code === stored)
-        ? stored
-        : visibleCategories[0].code;
-      setActiveCategoryTab(next);
+
+    if (visibleCategories.some((category) => category.code === activeCategoryTab)) {
+      return activeCategoryTab;
     }
+
+    const stored = readStoredCategoryTab();
+    return visibleCategories.some((category) => category.code === stored)
+      ? stored
+      : visibleCategories[0].code;
   }, [visibleCategories, activeCategoryTab]);
 
   function handleCategoryTabChange(code) {
@@ -285,7 +286,7 @@ export function AssetsPage() {
       {visibleCategories.length === 0 ? (
         <p className="text-sm text-muted-foreground">No categories available.</p>
       ) : (
-        <Tabs value={activeCategoryTab} onValueChange={handleCategoryTabChange}>
+        <Tabs value={selectedCategoryTab} onValueChange={handleCategoryTabChange}>
           <TabsList className="h-auto min-h-10 w-full flex-wrap justify-start">
             {visibleCategories.map((category) => {
               const count = (assetsByCategory[category.code] || []).filter((asset) =>

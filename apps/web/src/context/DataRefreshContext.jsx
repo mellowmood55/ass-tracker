@@ -5,7 +5,7 @@ const DataRefreshContext = createContext(null);
 export function DataRefreshProvider({ children }) {
   const [version, setVersion] = useState(0);
 
-  const bump = useCallback((_reason) => {
+  const bump = useCallback(() => {
     setVersion((current) => current + 1);
   }, []);
 
