@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
+const { getJwtSecret } = require("./config");
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret-in-production";
+const JWT_SECRET = getJwtSecret();
 
 function signToken(user) {
   return jwt.sign(
