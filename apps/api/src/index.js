@@ -17,9 +17,10 @@ const { validateAssetPayload, collectBlankRequiredFields } = require("./validati
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const isProduction = process.env.NODE_ENV === "production";
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || "5mb";
 
 app.use(cors({ origin: "*" }));
-app.use(express.json());
+app.use(express.json({ limit: jsonBodyLimit }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
