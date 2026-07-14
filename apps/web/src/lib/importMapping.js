@@ -455,8 +455,9 @@ export function getLowConfidenceHeaders(confidence, threshold = LOW_CONFIDENCE_T
 function parseBoolean(value) {
   if (typeof value === "boolean") return value;
   const key = normalizeKey(value);
+  if (!key) return String(value ?? "").trim();
   if (["true", "yes", "y", "1", "installed", "available", "on"].includes(key)) return true;
-  if (["false", "no", "n", "0", "missing", "none", "not installed", "off", ""].includes(key)) {
+  if (["false", "no", "n", "0", "missing", "none", "not installed", "off"].includes(key)) {
     return false;
   }
   return Boolean(value);
