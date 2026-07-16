@@ -46,6 +46,10 @@ function fieldLabel(config, fieldName) {
   return field?.label || fieldName;
 }
 
+function getBooleanDetailFields(config) {
+  return (config.detailFields || []).filter((field) => field.type === "boolean");
+}
+
 /**
  * Lists normally-required fields that are blank on this payload (for post-import admin alerts).
  */
@@ -161,6 +165,13 @@ function validateAssetPayload(payload, options = {}) {
   }
 
   if (data.category === CATEGORY_CODES.COMPUTER) {
+    for (const field of getBooleanDetailFields(config)) {
+      const value = data.details[field.name];
+      if (!isMissing(value) && typeof value !== "boolean") {
+        errors.push(`Detail field '${field.name}' must be yes/no for ${config.label}.`);
+      }
+    }
+
     if (!isMissing(data.details.deviceType) && !COMPUTER_TYPES.includes(data.details.deviceType)) {
       errors.push("Computer type must be Desktop or Laptop.");
     }

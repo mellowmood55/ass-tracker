@@ -11,7 +11,7 @@ export const CATEGORY_LIST_COLUMNS = {
     { label: "OS Installed", value: (asset) => asset.details?.osInstalled || "-" },
     {
       label: "Antivirus Installed",
-      value: (asset) => (asset.details?.antivirusInstalled ? "Yes" : "No"),
+      value: (asset) => (asset.details?.antivirusInstalled === true ? "Yes" : "No"),
     },
     { label: "Antivirus Type", value: (asset) => asset.details?.antivirusType || "-" },
     { label: "Remaining Days", value: (asset) => asset.details?.remainingSubscriptionDays ?? "-" },
