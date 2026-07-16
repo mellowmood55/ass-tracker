@@ -459,7 +459,7 @@ function parseBoolean(value) {
   if (["false", "no", "n", "0", "missing", "none", "not installed", "off", ""].includes(key)) {
     return false;
   }
-  return Boolean(value);
+  return value;
 }
 
 export function applyMapping(rows, mapping, category) {

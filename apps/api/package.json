@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "echo \"No tests yet\""
+    "test": "node --test src/*.test.cjs"
   },
   "keywords": [],
   "author": "",

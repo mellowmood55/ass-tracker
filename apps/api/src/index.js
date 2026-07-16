@@ -179,7 +179,7 @@ function buildReportColumns(asset) {
         Model: asset.model || "",
         ComputerType: details.deviceType || "",
         OS: details.osInstalled || "",
-        AntivirusStatus: details.antivirusInstalled ? "Installed" : "Missing",
+        AntivirusStatus: details.antivirusInstalled === true ? "Installed" : "Missing",
         RemainingDays: details.remainingSubscriptionDays ?? "",
         Status: asset.status,
       };
