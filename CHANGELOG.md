@@ -9,5 +9,8 @@
 - Production serves the Vite web build from Express so one hosted URL works on any device.
 - Fresh installs seed only the default `admin` / `admin123` account (no sample assets).
 
+### Fixed
+- Restored TLS certificate verification for hosted Postgres connections while keeping local database URLs non-TLS.
+
 ### Added
 - Render-oriented root `build` / `start` scripts and Neon + Render setup docs in the README.
