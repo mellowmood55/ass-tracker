@@ -12,11 +12,32 @@ if (!databaseUrl) {
   );
 }
 
+function isLocalDatabaseHost(hostname) {
+  const normalizedHost = hostname.toLowerCase();
+  return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(normalizedHost);
+}
+
+function buildSslConfig(connectionString) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(connectionString);
+  } catch (_error) {
+    throw new Error("DATABASE_URL must be a valid Postgres connection string.");
+  }
+
+  if (
+    parsedUrl.searchParams.get("sslmode") === "disable" ||
+    isLocalDatabaseHost(parsedUrl.hostname)
+  ) {
+    return false;
+  }
+
+  return { rejectUnauthorized: true };
+}
+
 const pool = new Pool({
   connectionString: databaseUrl,
-  ssl: databaseUrl.includes("localhost")
-    ? false
-    : { rejectUnauthorized: false },
+  ssl: buildSslConfig(databaseUrl),
 });
 
 function isUniqueViolation(error) {
@@ -111,4 +132,5 @@ module.exports = {
   withTransaction,
   initDb,
   isUniqueViolation,
+  buildSslConfig,
 };
