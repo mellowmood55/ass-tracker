@@ -103,8 +103,8 @@ function validateAssetPayload(payload, options = {}) {
     location: isMissing(parsed.data.location) ? null : parsed.data.location,
     office: isMissing(parsed.data.office) ? null : parsed.data.office,
     model: isMissing(parsed.data.model) ? null : parsed.data.model,
-    assetNo: isMissing(parsed.data.assetNo) ? null : parsed.data.assetNo,
-    serialNo: isMissing(parsed.data.serialNo) ? null : parsed.data.serialNo,
+    assetNo: isMissing(parsed.data.assetNo) ? null : String(parsed.data.assetNo).trim(),
+    serialNo: isMissing(parsed.data.serialNo) ? null : String(parsed.data.serialNo).trim(),
     status: isMissing(parsed.data.status) ? null : String(parsed.data.status).trim(),
     details: parsed.data.details || {},
   };
