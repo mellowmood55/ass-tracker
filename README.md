@@ -43,11 +43,11 @@ Change this account password immediately for production use.
 
 ```env
 PORT=4000
-JWT_SECRET=replace-with-a-long-random-secret
+JWT_SECRET=
 DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 ```
 
-Without `DATABASE_URL`, the API will refuse to start. On first start the API creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
+Set `JWT_SECRET` to a private, high-entropy value before starting the API. Without `DATABASE_URL` or a non-placeholder `JWT_SECRET`, the API will refuse to start. On first start the API creates tables and seeds `admin` / `admin123` if that user is missing. Existing SQLite files are not used or migrated.
 
 ### 2. Install and start (from repo root)
 
@@ -70,6 +70,7 @@ Both apps use the same Neon database from `apps/api/.env`, so data stays in sync
 | Symptom | Fix |
 |--------|-----|
 | `DATABASE_URL is required` | Add `apps/api/.env` with a real Neon URL |
+| `JWT_SECRET is required` | Add a private, non-placeholder signing secret to `apps/api/.env` |
 | Connection / SSL errors | Use Neon’s pooled URL and keep `?sslmode=require` |
 | Old `server/` or `client/` paths | Use `apps/api` and `apps/web` only |
 | Port in use | Stop the old process or change `PORT` in `.env` |
@@ -119,7 +120,7 @@ Backend example: `apps/api/.env.example`
 | Variable | Purpose |
 |----------|---------|
 | `DATABASE_URL` | Neon Postgres connection string (required) |
-| `JWT_SECRET` | JWT signing secret |
+| `JWT_SECRET` | Private JWT signing secret (required; placeholders are rejected) |
 | `PORT` | API port (default `4000`) |
 | `NODE_ENV` | Set `production` on Render to serve the built UI |
 
