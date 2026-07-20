@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Made single-asset create, update, and delete operations atomic with their audit-log writes so failures cannot commit asset changes without an audit trail.
+
 ### Changed
 - Reorganized monorepo into `apps/api` (Express + Neon) and `apps/web` (React + Vite); root scripts and Render build paths updated accordingly.
 - Documented the full local run procedure (Neon `.env`, install, `npm run dev`, troubleshooting) in the README.

@@ -506,41 +506,44 @@ app.post("/api/assets", requireAuth, async (req, res) => {
   const asset = result.data;
 
   try {
-    const insertResult = await query(
-      `INSERT INTO assets (
-        category,
-        location,
-        office,
-        model,
-        asset_no,
-        serial_no,
-        status,
-        details_json,
-        created_by,
-        updated_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-      RETURNING *`,
-      [
-        asset.category,
-        asset.location || null,
-        asset.office || null,
-        asset.model || null,
-        asset.assetNo || null,
-        asset.serialNo || null,
-        asset.status,
-        JSON.stringify(asset.details || {}),
-        req.user.sub,
-        req.user.sub,
-      ]
-    );
+    const mapped = await withTransaction(async (client) => {
+      const insertResult = await client.query(
+        `INSERT INTO assets (
+          category,
+          location,
+          office,
+          model,
+          asset_no,
+          serial_no,
+          status,
+          details_json,
+          created_by,
+          updated_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+        RETURNING *`,
+        [
+          asset.category,
+          asset.location || null,
+          asset.office || null,
+          asset.model || null,
+          asset.assetNo || null,
+          asset.serialNo || null,
+          asset.status,
+          JSON.stringify(asset.details || {}),
+          req.user.sub,
+          req.user.sub,
+        ]
+      );
 
-    const mapped = mapAssetRow(insertResult.rows[0]);
-    await insertAuditLog(null, {
-      assetId: mapped.id,
-      action: "create",
-      user: req.user,
-      before: null,
-      after: mapped,
+      const created = mapAssetRow(insertResult.rows[0]);
+      await insertAuditLog(client, {
+        assetId: created.id,
+        action: "create",
+        user: req.user,
+        before: null,
+        after: created,
+      });
+      return created;
     });
     return res.status(201).json({ asset: mapped });
   } catch (error) {
@@ -556,12 +559,6 @@ app.put("/api/assets/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
 
   try {
-    const existingResult = await query("SELECT * FROM assets WHERE id = $1", [id]);
-    const existing = existingResult.rows[0];
-    if (!existing) {
-      return res.status(404).json({ message: "Asset not found." });
-    }
-
     const result = validateAssetPayload(req.body);
     if (!result.valid) {
       return res.status(400).json({ message: "Validation failed.", errors: result.errors });
@@ -569,43 +566,56 @@ app.put("/api/assets/:id", requireAuth, async (req, res) => {
 
     const asset = result.data;
 
-    const updateResult = await query(
-      `UPDATE assets
-       SET category = $1,
-           location = $2,
-           office = $3,
-           model = $4,
-           asset_no = $5,
-           serial_no = $6,
-           status = $7,
-           details_json = $8::jsonb,
-           updated_by = $9,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $10
-       RETURNING *`,
-      [
-        asset.category,
-        asset.location || null,
-        asset.office || null,
-        asset.model || null,
-        asset.assetNo || null,
-        asset.serialNo || null,
-        asset.status,
-        JSON.stringify(asset.details || {}),
-        req.user.sub,
-        id,
-      ]
-    );
+    const after = await withTransaction(async (client) => {
+      const existingResult = await client.query("SELECT * FROM assets WHERE id = $1 FOR UPDATE", [id]);
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        return null;
+      }
 
-    const before = mapAssetRow(existing);
-    const after = mapAssetRow(updateResult.rows[0]);
-    await insertAuditLog(null, {
-      assetId: id,
-      action: "update",
-      user: req.user,
-      before,
-      after,
+      const updateResult = await client.query(
+        `UPDATE assets
+         SET category = $1,
+             location = $2,
+             office = $3,
+             model = $4,
+             asset_no = $5,
+             serial_no = $6,
+             status = $7,
+             details_json = $8::jsonb,
+             updated_by = $9,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $10
+         RETURNING *`,
+        [
+          asset.category,
+          asset.location || null,
+          asset.office || null,
+          asset.model || null,
+          asset.assetNo || null,
+          asset.serialNo || null,
+          asset.status,
+          JSON.stringify(asset.details || {}),
+          req.user.sub,
+          id,
+        ]
+      );
+
+      const before = mapAssetRow(existing);
+      const updated = mapAssetRow(updateResult.rows[0]);
+      await insertAuditLog(client, {
+        assetId: id,
+        action: "update",
+        user: req.user,
+        before,
+        after: updated,
+      });
+      return updated;
     });
+
+    if (!after) {
+      return res.status(404).json({ message: "Asset not found." });
+    }
 
     return res.json({ asset: after });
   } catch (error) {
@@ -621,21 +631,29 @@ app.delete("/api/assets/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
 
   try {
-    const existingResult = await query("SELECT * FROM assets WHERE id = $1", [id]);
-    const existing = existingResult.rows[0];
+    const deleted = await withTransaction(async (client) => {
+      const existingResult = await client.query("SELECT * FROM assets WHERE id = $1 FOR UPDATE", [id]);
+      const existing = existingResult.rows[0];
 
-    if (!existing) {
+      if (!existing) {
+        return false;
+      }
+
+      await client.query("DELETE FROM assets WHERE id = $1", [id]);
+      await insertAuditLog(client, {
+        assetId: id,
+        action: "delete",
+        user: req.user,
+        before: mapAssetRow(existing),
+        after: null,
+      });
+      return true;
+    });
+
+    if (!deleted) {
       return res.status(404).json({ message: "Asset not found." });
     }
 
-    await query("DELETE FROM assets WHERE id = $1", [id]);
-    await insertAuditLog(null, {
-      assetId: id,
-      action: "delete",
-      user: req.user,
-      before: mapAssetRow(existing),
-      after: null,
-    });
     return res.status(204).send();
   } catch (error) {
     console.error(error);
@@ -875,7 +893,14 @@ async function start() {
   });
 }
 
-start().catch((error) => {
-  console.error("Failed to start server:", error);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  app,
+  start,
+};
