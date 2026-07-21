@@ -619,7 +619,9 @@ function rowLooksLikeDataRow(row) {
   const dataLike = nonEmpty.filter((cell) => looksLikeDataValue(cell)).length;
   if (dataLike > 0) return true;
   // Asset tags / serials / short codes often appear in early data rows
-  const codeLike = nonEmpty.filter((cell) => /^[A-Z0-9][A-Z0-9/_-]{2,}$/i.test(cell)).length;
+  const codeLike = nonEmpty.filter(
+    (cell) => !looksLikeShortLabel(cell) && /^[A-Z0-9][A-Z0-9/_-]{2,}$/i.test(cell)
+  ).length;
   return codeLike >= 1 && nonEmpty.length >= 3;
 }
 
@@ -896,6 +898,25 @@ function filterHeaderLikeDataRows(rows, headers, category) {
     }).length;
 
     if (knownHits >= Math.max(2, Math.ceil(values.length * 0.5))) {
+      return false;
+    }
+
+    const sharedFieldCount = Math.min(
+      (category.sharedFields || []).length || 6,
+      headers.length
+    );
+    const earlyValues = headers
+      .slice(0, sharedFieldCount)
+      .map((header) => String(row[header] ?? "").trim())
+      .filter(Boolean);
+    const earlyKnownHits = earlyValues.filter((value) => {
+      const key = normalizeKey(value);
+      return known.has(key) || headerKeys.has(key);
+    }).length;
+    if (
+      earlyValues.length >= 3 &&
+      earlyKnownHits >= Math.max(2, Math.ceil(earlyValues.length * 0.6))
+    ) {
       return false;
     }
 
