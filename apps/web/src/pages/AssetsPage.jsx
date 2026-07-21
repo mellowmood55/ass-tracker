@@ -87,6 +87,7 @@ export function AssetsPage() {
 
   useEffect(() => {
     if (visibleCategories.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveCategoryTab("");
       return;
     }
@@ -95,6 +96,7 @@ export function AssetsPage() {
       const next = visibleCategories.some((category) => category.code === stored)
         ? stored
         : visibleCategories[0].code;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveCategoryTab(next);
     }
   }, [visibleCategories, activeCategoryTab]);

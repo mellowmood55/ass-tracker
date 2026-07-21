@@ -48,6 +48,7 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
   }, [riskFilter, category.code, assets.length]);
 
