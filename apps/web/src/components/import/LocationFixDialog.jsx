@@ -72,6 +72,7 @@ function LocationFixForm({ assets, locationOptions, onSaved, onOpenChange }) {
             serialNo: asset.serialNo || null,
             status: asset.status,
             details: asset.details || {},
+            expectedVersion: asset.version || null,
           };
           return api(
             `/api/assets/${asset.id}`,

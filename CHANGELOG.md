@@ -11,3 +11,6 @@
 
 ### Added
 - Render-oriented root `build` / `start` scripts and Neon + Render setup docs in the README.
+
+### Fixed
+- Rejected stale asset updates/deletes when another session has changed the same asset, preventing silent lost writes on the shared Postgres database.

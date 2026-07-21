@@ -23,6 +23,7 @@ export function AssetForm({
   onCategoryChange,
   editingId,
   initialFormState,
+  expectedVersion,
   onSaved,
   onCancelEdit,
 }) {
@@ -49,7 +50,11 @@ export function AssetForm({
     try {
       const payload = payloadFromForm(formState, selectedCategory, activeCategory);
       if (editingId) {
-        await api(`/api/assets/${editingId}`, { method: "PUT", body: JSON.stringify(payload) }, auth.token);
+        await api(
+          `/api/assets/${editingId}`,
+          { method: "PUT", body: JSON.stringify({ ...payload, expectedVersion }) },
+          auth.token
+        );
         toast.success("Asset updated successfully.");
       } else {
         await api("/api/assets", { method: "POST", body: JSON.stringify(payload) }, auth.token);

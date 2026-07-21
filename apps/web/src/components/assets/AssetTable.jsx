@@ -66,7 +66,11 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await api(`/api/assets/${deleteTarget.id}`, { method: "DELETE" }, auth.token);
+      await api(
+        `/api/assets/${deleteTarget.id}`,
+        { method: "DELETE", body: JSON.stringify({ expectedVersion: deleteTarget.version || null }) },
+        auth.token
+      );
       toast.success("Asset deleted.");
       setDeleteTarget(null);
       bump("asset-deleted");

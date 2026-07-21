@@ -96,6 +96,7 @@ export function EntryPage() {
           onCategoryChange={handleCategoryChange}
           editingId={editingId}
           initialFormState={initialFormState}
+          expectedVersion={editAsset?.version || null}
           onSaved={handleSaved}
           onCancelEdit={handleCancelEdit}
         />
