@@ -87,6 +87,7 @@ export function AssetsPage() {
 
   useEffect(() => {
     if (visibleCategories.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveCategoryTab("");
       return;
     }

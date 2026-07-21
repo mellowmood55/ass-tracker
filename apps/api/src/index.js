@@ -99,7 +99,16 @@ function mapAssetRow(row) {
     details: parseJsonField(row.details_json) || {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    version: row.row_version || null,
   };
+}
+
+function getExpectedVersion(body) {
+  const value = body?.expectedVersion;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  return value.trim();
 }
 
 async function insertAuditLog(clientOrNull, { assetId, action, user, before, after }) {
@@ -152,7 +161,7 @@ async function getFilteredAssets(queryParams) {
   }
 
   const sql = `
-    SELECT *
+    SELECT *, xmin::text AS row_version
     FROM assets
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY updated_at DESC, id DESC
@@ -519,7 +528,7 @@ app.post("/api/assets", requireAuth, async (req, res) => {
         created_by,
         updated_by
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-      RETURNING *`,
+      RETURNING *, xmin::text AS row_version`,
       [
         asset.category,
         asset.location || null,
@@ -554,9 +563,16 @@ app.post("/api/assets", requireAuth, async (req, res) => {
 
 app.put("/api/assets/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  const expectedVersion = getExpectedVersion(req.body);
+
+  if (!expectedVersion) {
+    return res.status(409).json({
+      message: "Asset was loaded without a version. Reload the asset before saving.",
+    });
+  }
 
   try {
-    const existingResult = await query("SELECT * FROM assets WHERE id = $1", [id]);
+    const existingResult = await query("SELECT *, xmin::text AS row_version FROM assets WHERE id = $1", [id]);
     const existing = existingResult.rows[0];
     if (!existing) {
       return res.status(404).json({ message: "Asset not found." });
@@ -581,8 +597,8 @@ app.put("/api/assets/:id", requireAuth, async (req, res) => {
            details_json = $8::jsonb,
            updated_by = $9,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $10
-       RETURNING *`,
+       WHERE id = $10 AND xmin::text = $11
+       RETURNING *, xmin::text AS row_version`,
       [
         asset.category,
         asset.location || null,
@@ -594,8 +610,15 @@ app.put("/api/assets/:id", requireAuth, async (req, res) => {
         JSON.stringify(asset.details || {}),
         req.user.sub,
         id,
+        expectedVersion,
       ]
     );
+
+    if (updateResult.rows.length === 0) {
+      return res.status(409).json({
+        message: "Asset was changed by another session. Reload it before saving again.",
+      });
+    }
 
     const before = mapAssetRow(existing);
     const after = mapAssetRow(updateResult.rows[0]);
@@ -619,16 +642,32 @@ app.put("/api/assets/:id", requireAuth, async (req, res) => {
 
 app.delete("/api/assets/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  const expectedVersion = getExpectedVersion(req.body);
+
+  if (!expectedVersion) {
+    return res.status(409).json({
+      message: "Asset was loaded without a version. Reload the asset before deleting.",
+    });
+  }
 
   try {
-    const existingResult = await query("SELECT * FROM assets WHERE id = $1", [id]);
+    const existingResult = await query("SELECT *, xmin::text AS row_version FROM assets WHERE id = $1", [id]);
     const existing = existingResult.rows[0];
 
     if (!existing) {
       return res.status(404).json({ message: "Asset not found." });
     }
 
-    await query("DELETE FROM assets WHERE id = $1", [id]);
+    const deleteResult = await query(
+      "DELETE FROM assets WHERE id = $1 AND xmin::text = $2",
+      [id, expectedVersion]
+    );
+    if (deleteResult.rowCount === 0) {
+      return res.status(409).json({
+        message: "Asset was changed by another session. Reload it before deleting again.",
+      });
+    }
+
     await insertAuditLog(null, {
       assetId: id,
       action: "delete",
@@ -763,7 +802,7 @@ app.post("/api/assets/import", requireAuth, async (req, res) => {
             created_by,
             updated_by
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-          RETURNING *`,
+          RETURNING *, xmin::text AS row_version`,
           [
             asset.category,
             asset.location || null,
