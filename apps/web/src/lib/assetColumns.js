@@ -1,4 +1,5 @@
 import { SHARED_FIELD_NAMES } from "./constants";
+export { buildAssetColumnsFromCategory } from "./fieldConfig";
 
 export const CATEGORY_LIST_COLUMNS = {
   computer: [

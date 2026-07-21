@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useDataRefresh } from "@/context/DataRefreshContext";
 import { api } from "@/lib/api";
 import {
-  CATEGORY_LIST_COLUMNS,
+  buildAssetColumnsFromCategory,
   getRiskLabel,
   getRiskVariant,
   matchesRiskFilter,
@@ -40,7 +40,10 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
   const [deleting, setDeleting] = useState(false);
   const [auditAsset, setAuditAsset] = useState(null);
 
-  const columns = CATEGORY_LIST_COLUMNS[category.code] || [];
+  const columns = useMemo(
+    () => buildAssetColumnsFromCategory(category),
+    [category]
+  );
 
   const filteredAssets = useMemo(
     () => assets.filter((asset) => matchesRiskFilter(asset, riskFilter)),
@@ -144,7 +147,6 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
                 {columns.map((column) => (
                   <TableHead key={column.label}>{column.label}</TableHead>
                 ))}
@@ -157,7 +159,6 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
                 const riskLabel = getRiskLabel(asset);
                 return (
                   <TableRow key={asset.id} className="transition-colors hover:bg-accent/40">
-                    <TableCell className="font-medium">{asset.id}</TableCell>
                     {columns.map((column) => (
                       <TableCell key={`${asset.id}-${column.label}`}>{column.value(asset)}</TableCell>
                     ))}
@@ -215,7 +216,6 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">#{asset.id}</p>
                   <p className="truncate text-base font-semibold text-foreground">
                     {formatCardIdentity(asset)}
                   </p>

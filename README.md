@@ -10,6 +10,7 @@ Cloud-ready asset tracker for ICT teams with:
 - Stepped CSV/XLS/XLSX import with column mapping memory
 - Priority risk alerts (antivirus + outdated OS)
 - Neon Postgres persistence (shared across devices)
+- Admin category field settings (grouped headers, aliases, fixed select values)
 - Basic audit trail
 
 ## Tech Stack
@@ -73,6 +74,20 @@ Both apps use the same Neon database from `apps/api/.env`, so data stays in sync
 | Connection / SSL errors | Use Neon’s pooled URL and keep `?sslmode=require` |
 | Old `server/` or `client/` paths | Use `apps/api` and `apps/web` only |
 | Port in use | Stop the old process or change `PORT` in `.env` |
+| `Cannot find module '@rolldown/binding-…'` / Vite native binding error | Delete `apps/web/node_modules`, run `npm install --prefix apps/web`, then `npm run dev` again. If it persists, also delete `apps/web/package-lock.json` and reinstall. |
+| Default `admin` / `admin123` login fails | The Neon `admin` password was changed. From repo root run `npm run reset-admin --prefix apps/api`, or set `RESET_DEFAULT_ADMIN_PASSWORD=true` in `apps/api/.env`, restart the API once, then remove that line. |
+| Entry/Import fields look outdated after editing settings | Save in **Settings**, then refresh Entry or Import. Category config is loaded from the API on each page load. |
+
+### Category field settings
+
+Admins can open **Settings** (gear beside the signed-in user, or the Settings tab on mobile) to edit fields per category:
+
+- Add/remove custom fields and groups (locked system fields cannot be removed)
+- Mark fields as required
+- Set fixed values for select fields
+- Add import aliases for spreadsheet column matching
+
+Computer imports and templates support **two-row grouped headers** (group row + subheader row), for example `Operating System` above `Operating System Version` and `Wi-Fi Drivers`.
 
 ### Optional LAN UI (API still uses Neon)
 

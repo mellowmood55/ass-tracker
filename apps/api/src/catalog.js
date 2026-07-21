@@ -187,18 +187,12 @@ function normalizeImportFieldValue(fieldName, rawValue, categoryCode) {
   }
 
   if (fieldName === "status") {
-    const options = STATUS_BY_CATEGORY[categoryCode] || [];
-    const aliases =
-      categoryCode === CATEGORY_CODES.SOFTWARE ? SOFTWARE_STATUS_ALIASES : HARDWARE_STATUS_ALIASES;
-    return normalizeFromAliasMap(rawValue, options, aliases);
+    if (rawValue === null || rawValue === undefined) return rawValue;
+    return String(rawValue).trim();
   }
 
   if (fieldName === "deviceType") {
     return normalizeFromAliasMap(rawValue, COMPUTER_TYPES, DEVICE_TYPE_ALIASES);
-  }
-
-  if (fieldName === "osInstalled") {
-    return normalizeFromAliasMap(rawValue, COMPUTER_OS_OPTIONS, OS_ALIASES);
   }
 
   if (["officeInstalled", "antivirusInstalled", "wirelessCapability"].includes(fieldName)) {
@@ -249,7 +243,6 @@ const CATEGORY_CONFIG = {
       "deviceType",
       "osInstalled",
       "officeInstalled",
-      "antivirusInstalled",
       "wirelessCapability",
     ],
     sharedFields: [
@@ -264,7 +257,7 @@ const CATEGORY_CONFIG = {
       { name: "model", label: "Model", type: "text", required: true },
       { name: "assetNo", label: "Asset No", type: "text", required: true },
       { name: "serialNo", label: "Serial No", type: "text", required: true },
-      { name: "status", label: "Status", type: "select", required: true },
+      { name: "status", label: "Status", type: "text", required: true },
     ],
     detailFields: [
       {
@@ -277,16 +270,15 @@ const CATEGORY_CONFIG = {
       {
         name: "osInstalled",
         label: "OS Installed",
-        type: "select",
+        type: "text",
         required: true,
-        options: COMPUTER_OS_OPTIONS,
       },
       { name: "officeInstalled", label: "Office Installed", type: "boolean", required: true },
       {
         name: "antivirusInstalled",
         label: "Antivirus Installed",
         type: "boolean",
-        required: true,
+        required: false,
       },
       {
         name: "wirelessCapability",
@@ -313,7 +305,7 @@ const CATEGORY_CONFIG = {
     sharedRequired: ["status"],
     detailRequired: ["description", "function"],
     sharedFields: [
-      { name: "status", label: "Status", type: "select", required: true },
+      { name: "status", label: "Status", type: "text", required: true },
     ],
     detailFields: [
       { name: "description", label: "Description", type: "text", required: true },
@@ -328,7 +320,7 @@ const CATEGORY_CONFIG = {
       { name: "office", label: "Office", type: "text", required: true },
       { name: "model", label: "Model", type: "text", required: true },
       { name: "serialNo", label: "Serial No", type: "text", required: true },
-      { name: "status", label: "Status", type: "select", required: true },
+      { name: "status", label: "Status", type: "text", required: true },
     ],
     detailFields: [],
   },
@@ -346,7 +338,7 @@ const CATEGORY_CONFIG = {
       },
       { name: "model", label: "Model", type: "text", required: true },
       { name: "serialNo", label: "Serial No", type: "text", required: true },
-      { name: "status", label: "Status", type: "select", required: true },
+      { name: "status", label: "Status", type: "text", required: true },
     ],
     detailFields: [
       { name: "item", label: "Item", type: "text", required: true },
@@ -361,7 +353,7 @@ const CATEGORY_CONFIG = {
       { name: "model", label: "Model", type: "text", required: true },
       { name: "assetNo", label: "Asset No", type: "text", required: true },
       { name: "serialNo", label: "Serial No", type: "text", required: true },
-      { name: "status", label: "Status", type: "select", required: true },
+      { name: "status", label: "Status", type: "text", required: true },
     ],
     detailFields: [
       { name: "item", label: "Item", type: "text", required: true },
@@ -375,7 +367,7 @@ const CATEGORY_CONFIG = {
       { name: "office", label: "Office", type: "text", required: true },
       { name: "model", label: "Model", type: "text", required: true },
       { name: "assetNo", label: "Asset No", type: "text", required: true },
-      { name: "status", label: "Status", type: "select", required: true },
+      { name: "status", label: "Status", type: "text", required: true },
     ],
     detailFields: [],
   },
@@ -395,7 +387,7 @@ const CATEGORY_CONFIG = {
       { name: "model", label: "Model", type: "text", required: true },
       { name: "assetNo", label: "Asset No", type: "text", required: true },
       { name: "serialNo", label: "Serial No", type: "text", required: true },
-      { name: "status", label: "Status", type: "select", required: true },
+      { name: "status", label: "Status", type: "text", required: true },
     ],
     detailFields: [],
   },
@@ -409,6 +401,16 @@ module.exports = {
   COMPUTER_TYPES,
   COMPUTER_OS_OPTIONS,
   STATUS_BY_CATEGORY,
+  LOCATION_ALIASES,
+  HARDWARE_STATUS_ALIASES,
+  SOFTWARE_STATUS_ALIASES,
+  DEVICE_TYPE_ALIASES,
+  OS_ALIASES,
+  normalizeKey,
+  compactKey,
+  matchCanonicalOption,
+  normalizeBooleanValue,
+  normalizeFromAliasMap,
   normalizeLocationValue,
   normalizeImportFieldValue,
   normalizeImportRow,

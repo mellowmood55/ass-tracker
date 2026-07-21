@@ -105,7 +105,6 @@ function LocationFixForm({ assets, locationOptions, onSaved, onOpenChange }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
               <TableHead>Asset No</TableHead>
               <TableHead>Model</TableHead>
               <TableHead>Location</TableHead>
@@ -114,7 +113,6 @@ function LocationFixForm({ assets, locationOptions, onSaved, onOpenChange }) {
           <TableBody>
             {assetList.map((asset) => (
               <TableRow key={asset.id}>
-                <TableCell>{asset.id}</TableCell>
                 <TableCell>{asset.assetNo || "—"}</TableCell>
                 <TableCell>{asset.model || "—"}</TableCell>
                 <TableCell className="min-w-[180px]">

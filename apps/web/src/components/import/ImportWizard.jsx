@@ -128,6 +128,8 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
+  const [headerMeta, setHeaderMeta] = useState([]);
+  const [groupedHeaders, setGroupedHeaders] = useState(false);
   const [mapping, setMapping] = useState({});
   const [confidence, setConfidence] = useState({});
   const [error, setError] = useState("");
@@ -168,6 +170,8 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
   function resetFileState() {
     setRows([]);
     setHeaders([]);
+    setHeaderMeta([]);
+    setGroupedHeaders(false);
     setMapping({});
     setConfidence({});
     setError("");
@@ -200,10 +204,12 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
           return;
         }
 
-        const autoMapped = autoMapColumns(parsed.headers, category);
+        const autoMapped = autoMapColumns(parsed.headers, category, parsed.headerMeta);
         const merged = applyStoredMapping(parsed.headers, category.code, autoMapped);
 
         setHeaders(parsed.headers);
+        setHeaderMeta(parsed.headerMeta || []);
+        setGroupedHeaders(Boolean(parsed.groupedHeaders));
         setRows(parsed.rows);
         setMapping(merged.mapping);
         setConfidence(merged.confidence);
@@ -464,17 +470,38 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>File column</TableHead>
+                    {groupedHeaders ? (
+                      <>
+                        <TableHead>Group header</TableHead>
+                        <TableHead>Subheader</TableHead>
+                      </>
+                    ) : (
+                      <TableHead>File column</TableHead>
+                    )}
                     <TableHead>Maps to</TableHead>
                     <TableHead>Match</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {headers.map((header) => {
+                  {headers.map((header, index) => {
                     const mappedField = mapping[header];
+                    const meta = headerMeta[index] || {
+                      key: header,
+                      groupLabel: "",
+                      fieldLabel: header,
+                    };
                     return (
                       <TableRow key={header}>
-                        <TableCell className="font-medium">{header}</TableCell>
+                        {groupedHeaders ? (
+                          <>
+                            <TableCell className="font-medium text-muted-foreground">
+                              {meta.groupLabel || "—"}
+                            </TableCell>
+                            <TableCell className="font-medium">{meta.fieldLabel || header}</TableCell>
+                          </>
+                        ) : (
+                          <TableCell className="font-medium">{header}</TableCell>
+                        )}
                         <TableCell>
                           <Select
                             value={mappedField || IGNORE_VALUE}

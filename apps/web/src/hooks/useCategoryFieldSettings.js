@@ -3,19 +3,19 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useDataRefresh } from "@/context/DataRefreshContext";
 
-export function useCategories() {
+export function useCategoryFieldSettings() {
   const { auth } = useAuth();
   const { version } = useDataRefresh();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const loadCategories = useCallback(async () => {
+  const loadSettings = useCallback(async () => {
     if (!auth.token) return;
     setLoading(true);
     setError("");
     try {
-      const data = await api("/api/categories", {}, auth.token);
+      const data = await api("/api/settings/category-fields", {}, auth.token);
       setCategories(data.categories);
     } catch (err) {
       setError(err.message);
@@ -25,9 +25,21 @@ export function useCategories() {
   }, [auth.token]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadCategories();
-  }, [loadCategories, version]);
+    void loadSettings();
+  }, [loadSettings, version]);
 
-  return { categories, loading, error, reload: loadCategories };
+  const saveCategory = useCallback(
+    async (code, config) => {
+      const data = await api(
+        `/api/settings/category-fields/${code}`,
+        { method: "PUT", body: JSON.stringify(config) },
+        auth.token
+      );
+      await loadSettings();
+      return data.config;
+    },
+    [auth.token, loadSettings]
+  );
+
+  return { categories, loading, error, reload: loadSettings, saveCategory };
 }

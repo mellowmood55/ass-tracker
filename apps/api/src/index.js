@@ -11,7 +11,15 @@ const { z } = require("zod");
 
 const { query, withTransaction, initDb, isUniqueViolation } = require("./db");
 const { signToken, requireAuth } = require("./auth");
-const { CATEGORY_CODES, CATEGORY_CONFIG, STATUS_BY_CATEGORY, normalizeImportRow } = require("./catalog");
+const { CATEGORY_CODES, CATEGORY_CONFIG, STATUS_BY_CATEGORY } = require("./catalog");
+const {
+  loadAllCategoryConfigsForApi,
+  loadSettingsPayload,
+  saveCategoryConfig,
+  getCachedCategoryConfig,
+  normalizeImportRowWithConfig,
+  buildReportRowFromConfig,
+} = require("./categoryConfig");
 const { validateAssetPayload, collectBlankRequiredFields } = require("./validation");
 
 const app = express();
@@ -64,16 +72,45 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.get("/api/categories", requireAuth, (_req, res) => {
-  const categories = Object.entries(CATEGORY_CONFIG).map(([code, config]) => ({
-    code,
-    label: config.label,
-    statuses: STATUS_BY_CATEGORY[code],
-    sharedFields: config.sharedFields,
-    detailFields: config.detailFields,
-  }));
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required." });
+  }
+  return next();
+}
 
-  res.json({ categories });
+app.get("/api/categories", requireAuth, async (_req, res) => {
+  try {
+    const categories = await loadAllCategoryConfigsForApi();
+    res.json({ categories });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to load categories." });
+  }
+});
+
+app.get("/api/settings/category-fields", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const categories = await loadSettingsPayload();
+    res.json({ categories });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to load category field settings." });
+  }
+});
+
+app.put("/api/settings/category-fields/:code", requireAuth, requireAdmin, async (req, res) => {
+  const { code } = req.params;
+  try {
+    const result = await saveCategoryConfig(code, req.body, req.user.sub);
+    if (!result.ok) {
+      return res.status(result.status).json({ message: result.message });
+    }
+    return res.json({ config: result.config });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to save category field settings." });
+  }
 });
 
 function parseJsonField(value) {
@@ -167,70 +204,8 @@ function getCategoryAssets(assets, categoryCode) {
 }
 
 function buildReportColumns(asset) {
-  const details = asset.details || {};
-
-  switch (asset.category) {
-    case CATEGORY_CODES.COMPUTER:
-      return {
-        AssetNo: asset.assetNo || "",
-        SerialNo: asset.serialNo || "",
-        Location: asset.location || "",
-        Office: asset.office || "",
-        Model: asset.model || "",
-        ComputerType: details.deviceType || "",
-        OS: details.osInstalled || "",
-        AntivirusStatus: details.antivirusInstalled ? "Installed" : "Missing",
-        RemainingDays: details.remainingSubscriptionDays ?? "",
-        Status: asset.status,
-      };
-    case CATEGORY_CODES.PRINTER:
-      return {
-        AssetNo: asset.assetNo || "",
-        SerialNo: asset.serialNo || "",
-        Location: asset.location || "",
-        Office: asset.office || "",
-        Model: asset.model || "",
-        Status: asset.status,
-      };
-    case CATEGORY_CODES.SOFTWARE:
-      return {
-        Description: details.description || "",
-        Function: details.function || "",
-        Status: asset.status,
-      };
-    case CATEGORY_CODES.UPS:
-      return {
-        Office: asset.office || "",
-        Model: asset.model || "",
-        SerialNo: asset.serialNo || "",
-        Status: asset.status,
-      };
-    case CATEGORY_CODES.NETWORK:
-      return {
-        Location: asset.location || "",
-        Item: details.item || "",
-        Model: asset.model || "",
-        SerialNo: asset.serialNo || "",
-        Status: asset.status,
-      };
-    case CATEGORY_CODES.MOBILE:
-      return {
-        Office: asset.office || "",
-        Model: asset.model || "",
-        AssetNo: asset.assetNo || "",
-        Status: asset.status,
-      };
-    case CATEGORY_CODES.OTHER:
-    default:
-      return {
-        Office: asset.office || "",
-        Item: details.item || "",
-        Model: asset.model || "",
-        AssetNo: asset.assetNo || "",
-        SerialNo: asset.serialNo || "",
-        Status: asset.status,
-      };
-  }
+  const config = getCachedCategoryConfig(asset.category);
+  return buildReportRowFromConfig(asset, config);
 }
 
 const RISK_PRIORITY = {
@@ -669,7 +644,8 @@ app.post("/api/assets/import", requireAuth, async (req, res) => {
       const seenSerialNos = new Set();
 
       for (let index = 0; index < rows.length; index += 1) {
-        const row = normalizeImportRow(rows[index], category);
+        const config = getCachedCategoryConfig(category);
+        const row = normalizeImportRowWithConfig(rows[index], category, config);
         const payload = {
           category,
           location: row.location || null,

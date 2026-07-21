@@ -9,6 +9,8 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { EntryPage } from "@/pages/EntryPage";
 import { ImportPage } from "@/pages/ImportPage";
 import { AssetsPage } from "@/pages/AssetsPage";
+import { SettingsHubPage } from "@/pages/SettingsHubPage";
+import { EditCategoryFieldsPage } from "@/pages/settings/EditCategoryFieldsPage";
 
 function EditRedirect() {
   const { id } = useParams();
@@ -33,6 +35,10 @@ function App() {
               <Route path="entry" element={<EntryPage />} />
               <Route path="import" element={<ImportPage />} />
               <Route path="assets" element={<AssetsPage />} />
+              <Route path="settings" element={<SettingsHubPage />}>
+                <Route index element={<Navigate to="edit-category-fields" replace />} />
+                <Route path="edit-category-fields" element={<EditCategoryFieldsPage />} />
+              </Route>
               <Route path="assets/:id/edit" element={<EditRedirect />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

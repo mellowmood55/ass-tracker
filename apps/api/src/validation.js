@@ -1,12 +1,11 @@
 const { z } = require("zod");
+const { CATEGORY_CONFIG } = require("./catalog");
 const {
-  CATEGORY_CODES,
-  CATEGORY_CONFIG,
-  LOCATION_OPTIONS,
-  COMPUTER_OS_OPTIONS,
-  COMPUTER_TYPES,
-  STATUS_BY_CATEGORY,
-} = require("./catalog");
+  getCachedCategoryConfig,
+  buildFieldLists,
+  fieldIsVisible,
+  fieldIsRequired,
+} = require("./categoryConfig");
 
 const assetPayloadSchema = z.object({
   category: z.string().min(1),
@@ -31,59 +30,62 @@ function isMissing(value) {
   return false;
 }
 
+function getConfig(categoryCode) {
+  return getCachedCategoryConfig(categoryCode);
+}
+
+function fieldLabel(config, fieldName) {
+  const field = buildFieldLists(config).find((entry) => entry.name === fieldName);
+  return field?.label || fieldName;
+}
+
 function categoryUsesLocationOptions(categoryCode) {
-  const config = CATEGORY_CONFIG[categoryCode];
+  const config = getConfig(categoryCode);
   if (!config) return false;
   return (config.sharedFields || []).some(
     (field) => field.name === "location" && field.type === "select"
   );
 }
 
-function fieldLabel(config, fieldName) {
-  const field = [...(config.sharedFields || []), ...(config.detailFields || [])].find(
-    (entry) => entry.name === fieldName
-  );
-  return field?.label || fieldName;
-}
-
-/**
- * Lists normally-required fields that are blank on this payload (for post-import admin alerts).
- */
 function collectBlankRequiredFields(payload) {
-  const config = CATEGORY_CONFIG[payload.category];
+  const config = getConfig(payload.category);
   if (!config) return [];
 
   const blanks = [];
   const details = payload.details || {};
 
   for (const field of config.sharedFields || []) {
-    const required =
-      field.required === true || (config.sharedRequired || []).includes(field.name);
-    if (!required) continue;
+    if (!fieldIsRequired(field, config)) continue;
     if (isMissing(payload[field.name])) {
       blanks.push(field.label || field.name);
     }
   }
 
   for (const field of config.detailFields || []) {
-    const required =
-      field.required === true || (config.detailRequired || []).includes(field.name);
-    if (!required) continue;
+    if (!fieldIsRequired(field, config)) continue;
+    if (!fieldIsVisible(field, details, payload)) continue;
     if (isMissing(details[field.name])) {
       blanks.push(field.label || field.name);
     }
   }
 
-  if (details.antivirusInstalled === true) {
-    if (isMissing(details.antivirusType)) {
-      blanks.push(fieldLabel(config, "antivirusType"));
-    }
-    if (isMissing(details.remainingSubscriptionDays)) {
-      blanks.push(fieldLabel(config, "remainingSubscriptionDays"));
+  for (const field of config.detailFields || []) {
+    if (!field.showWhen) continue;
+    if (!fieldIsVisible(field, details, payload)) continue;
+    if (field.required && isMissing(details[field.name])) {
+      blanks.push(field.label || field.name);
     }
   }
 
-  return blanks;
+  return [...new Set(blanks)];
+}
+
+function validateSelectValue(field, value, errors, isImport) {
+  if (isMissing(value)) return;
+  if (field.type !== "select" || !field.options?.length) return;
+  if (!field.options.includes(value)) {
+    errors.push(`Invalid value '${value}' for '${field.label}'.`);
+  }
 }
 
 function validateAssetPayload(payload, options = {}) {
@@ -109,95 +111,76 @@ function validateAssetPayload(payload, options = {}) {
     details: parsed.data.details || {},
   };
 
-  const config = CATEGORY_CONFIG[data.category];
-  if (!config) {
+  const config = getConfig(data.category);
+  const meta = CATEGORY_CONFIG[data.category];
+  if (!config || !meta) {
     return { valid: false, errors: ["Invalid category selected."] };
   }
 
-  const statusList = STATUS_BY_CATEGORY[data.category] || [];
   const errors = [];
 
   if (isImport) {
-    // Import: blank values are allowed for every field. Only reject present-but-invalid selects.
-    if (!isMissing(data.status) && !statusList.includes(data.status)) {
-      errors.push(`Invalid status '${data.status}' for category '${config.label}'.`);
+    if (isMissing(data.status)) {
+      data.status = null;
     }
 
-    // DB requires status NOT NULL — provisional default when blank; flagged via collectBlankRequiredFields.
-    if (isMissing(data.status)) {
-      data.status = statusList[0] || "Functional";
+    for (const field of config.detailFields || []) {
+      if (!field.showWhen || !field.required) continue;
+      if (!fieldIsVisible(field, data.details, data)) continue;
+      if (isMissing(data.details[field.name])) {
+        errors.push(`Detail field '${field.label}' is required when ${field.showWhen.field} is enabled.`);
+      }
     }
   } else {
-    if (isMissing(data.status) || !statusList.includes(data.status)) {
-      errors.push(
-        isMissing(data.status)
-          ? `Field 'status' is required for ${config.label}.`
-          : `Invalid status '${data.status}' for category '${config.label}'.`
-      );
+    if (isMissing(data.status)) {
+      errors.push(`Field 'status' is required for ${meta.label}.`);
     }
 
-    for (const field of config.sharedRequired) {
-      if (isMissing(data[field])) {
-        errors.push(`Field '${field}' is required for ${config.label}.`);
+    for (const field of config.sharedFields || []) {
+      if (!fieldIsRequired(field, config)) continue;
+      if (field.name === "status") continue; // already checked above without fixed list
+      if (isMissing(data[field.name])) {
+        errors.push(`Field '${field.label}' is required for ${meta.label}.`);
       }
     }
 
-    const locationField = (config.sharedFields || []).find((field) => field.name === "location");
-    if (locationField?.required && isMissing(data.location)) {
-      errors.push(`Field 'location' is required for ${config.label}.`);
+    for (const field of config.detailFields || []) {
+      if (!fieldIsRequired(field, config)) continue;
+      if (!fieldIsVisible(field, data.details, data)) continue;
+      if (isMissing(data.details[field.name])) {
+        errors.push(`Detail field '${field.label}' is required for ${meta.label}.`);
+      }
     }
 
-    for (const field of config.detailRequired) {
-      if (isMissing(data.details[field])) {
-        errors.push(`Detail field '${field}' is required for ${config.label}.`);
+    for (const field of config.detailFields || []) {
+      if (!field.showWhen || !field.required) continue;
+      if (!fieldIsVisible(field, data.details, data)) continue;
+      if (isMissing(data.details[field.name])) {
+        errors.push(`Detail field '${field.label}' is required for ${meta.label}.`);
       }
     }
   }
 
   if (categoryUsesLocationOptions(data.category) && !isMissing(data.location)) {
-    if (!LOCATION_OPTIONS.includes(data.location)) {
-      errors.push("Location must be one of: 9TH Floor (A), 9th floor (B), or 10th floor.");
+    const locationField = (config.sharedFields || []).find((field) => field.name === "location");
+    const options = locationField?.options || [];
+    if (options.length && !options.includes(data.location)) {
+      errors.push(`Location must be one of: ${options.join(", ")}.`);
     }
   }
 
-  if (data.category === CATEGORY_CODES.COMPUTER) {
-    if (!isMissing(data.details.deviceType) && !COMPUTER_TYPES.includes(data.details.deviceType)) {
-      errors.push("Computer type must be Desktop or Laptop.");
-    }
+  for (const field of config.sharedFields || []) {
+    validateSelectValue(field, data[field.name], errors, isImport);
+  }
 
-    if (!isMissing(data.details.osInstalled) && !COMPUTER_OS_OPTIONS.includes(data.details.osInstalled)) {
-      errors.push("Computer OS must be Windows 7, Windows 8, Windows 8.1, Windows 10, or Windows 11.");
-    }
+  for (const field of config.detailFields || []) {
+    if (!fieldIsVisible(field, data.details, data)) continue;
+    validateSelectValue(field, data.details[field.name], errors, isImport);
 
-    if (!isImport) {
-      if (isMissing(data.details.deviceType)) {
-        errors.push("Detail field 'deviceType' is required for Computer.");
-      }
-      if (isMissing(data.details.osInstalled)) {
-        errors.push("Detail field 'osInstalled' is required for Computer.");
-      }
-    }
-
-    if (data.details.antivirusInstalled === true) {
-      if (!isImport) {
-        if (isMissing(data.details.antivirusType)) {
-          errors.push("Detail field 'antivirusType' is required when antivirus is installed.");
-        }
-
-        const days = Number(data.details.remainingSubscriptionDays);
-        if (Number.isNaN(days) || days < 0) {
-          errors.push(
-            "Detail field 'remainingSubscriptionDays' must be a non-negative number when antivirus is installed."
-          );
-        }
-      } else if (
-        !isMissing(data.details.remainingSubscriptionDays) &&
-        (Number.isNaN(Number(data.details.remainingSubscriptionDays)) ||
-          Number(data.details.remainingSubscriptionDays) < 0)
-      ) {
-        errors.push(
-          "Detail field 'remainingSubscriptionDays' must be a non-negative number when antivirus is installed."
-        );
+    if (field.type === "number" && !isMissing(data.details[field.name])) {
+      const numeric = Number(data.details[field.name]);
+      if (Number.isNaN(numeric) || numeric < 0) {
+        errors.push(`Detail field '${field.label}' must be a non-negative number.`);
       }
     }
   }
@@ -213,4 +196,5 @@ module.exports = {
   validateAssetPayload,
   collectBlankRequiredFields,
   isMissing,
+  fieldLabel,
 };

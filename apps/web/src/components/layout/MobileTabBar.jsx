@@ -1,15 +1,22 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import { PRIMARY_NAV } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 export function MobileTabBar({ riskCount = 0 }) {
+  const { auth } = useAuth();
+  const isAdmin = auth.user?.role === "admin";
+  const items = PRIMARY_NAV.filter((item) => item.to !== "/settings" || isAdmin);
+
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(30,70,32,0.08)] backdrop-blur md:hidden"
       aria-label="Primary"
     >
-      <ul className="grid h-16 grid-cols-4">
-        {PRIMARY_NAV.map(({ to, shortLabel, icon: Icon, end }) => (
+      <ul
+        className={cn("grid h-16", items.length === 5 ? "grid-cols-5" : "grid-cols-4")}
+      >
+        {items.map(({ to, shortLabel, icon: Icon, end }) => (
           <li key={to} className="min-w-0">
             <NavLink
               to={to}
