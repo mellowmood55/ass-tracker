@@ -18,9 +18,9 @@ export function AppShell() {
         <header className="flex items-center gap-3 border-b border-border/70 bg-card/70 px-4 py-3 backdrop-blur md:hidden">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              ICT Asset Tracker
+              ICT
             </p>
-            <p className="text-sm font-bold text-primary">Stay on top of risk</p>
+            <p className="text-sm font-bold text-primary">Asset Tracker</p>
           </div>
           {riskCount > 0 && (
             <span className="ml-auto rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-white">

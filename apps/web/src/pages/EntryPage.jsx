@@ -77,7 +77,6 @@ export function EntryPage() {
   return (
     <div className="space-y-5 animate-in-fade">
       <PageHeader
-        eyebrow="Data entry"
         title={editingId ? `Edit Asset #${editingId}` : "Add Asset"}
         description={
           editingId

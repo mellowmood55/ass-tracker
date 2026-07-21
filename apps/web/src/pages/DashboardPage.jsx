@@ -34,7 +34,6 @@ export function DashboardPage() {
   return (
     <div className="space-y-5 animate-in-fade">
       <PageHeader
-        eyebrow="ICT Asset Tracker"
         title="Dashboard"
         description="Priority alerts and inventory health at a glance."
       />

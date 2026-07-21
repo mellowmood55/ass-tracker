@@ -172,7 +172,6 @@ export function AssetsPage() {
   return (
     <div className="space-y-5 animate-in-fade">
       <PageHeader
-        eyebrow="Inventory"
         title="Assets"
         description="Browse one category at a time. Export reports or jump to Import."
         actions={
