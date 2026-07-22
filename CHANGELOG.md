@@ -8,10 +8,12 @@
 - Dark theme CSS tokens matching the warm parchment + forest-green light brand.
 - User management APIs (`/api/users`) and change-password endpoint.
 - Concurrent duplicate handling: structured `409 DUPLICATE_ASSET` with field conflicts; import savepoints so unique races skip a row instead of aborting the batch.
+- Office LAN deploy scripts (`build-office.cmd`, `start-office.cmd`) and README guide for production hosting on one ICT PC.
 
 ### Changed
 - Asset No / Serial No (and shared text fields) are trimmed on validate before persistence.
 - Entry form surfaces duplicate conflicts with an admin “Open existing” action.
+- Production API binds to `0.0.0.0` by default so LAN devices can reach the host PC.
 - Reorganized monorepo into `apps/api` (Express + Neon) and `apps/web` (React + Vite); root scripts and Render build paths updated accordingly.
 - Documented the full local run procedure (Neon `.env`, install, `npm run dev`, troubleshooting) in the README.
 - Replaced local SQLite (`better-sqlite3`) with Neon Postgres via `pg` and `DATABASE_URL`.
