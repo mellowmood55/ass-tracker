@@ -30,6 +30,13 @@ function isMissing(value) {
   return false;
 }
 
+function normalizeIdentityValue(value) {
+  if (isMissing(value)) {
+    return null;
+  }
+  return String(value).trim();
+}
+
 function getConfig(categoryCode) {
   return getCachedCategoryConfig(categoryCode);
 }
@@ -102,11 +109,11 @@ function validateAssetPayload(payload, options = {}) {
 
   const data = {
     ...parsed.data,
-    location: isMissing(parsed.data.location) ? null : parsed.data.location,
-    office: isMissing(parsed.data.office) ? null : parsed.data.office,
-    model: isMissing(parsed.data.model) ? null : parsed.data.model,
-    assetNo: isMissing(parsed.data.assetNo) ? null : parsed.data.assetNo,
-    serialNo: isMissing(parsed.data.serialNo) ? null : parsed.data.serialNo,
+    location: isMissing(parsed.data.location) ? null : String(parsed.data.location).trim(),
+    office: isMissing(parsed.data.office) ? null : String(parsed.data.office).trim(),
+    model: isMissing(parsed.data.model) ? null : String(parsed.data.model).trim(),
+    assetNo: normalizeIdentityValue(parsed.data.assetNo),
+    serialNo: normalizeIdentityValue(parsed.data.serialNo),
     status: isMissing(parsed.data.status) ? null : String(parsed.data.status).trim(),
     details: parsed.data.details || {},
   };
@@ -197,4 +204,5 @@ module.exports = {
   collectBlankRequiredFields,
   isMissing,
   fieldLabel,
+  normalizeIdentityValue,
 };

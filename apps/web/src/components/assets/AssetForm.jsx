@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { canEditAssets } from "@/lib/roles";
 import { makeInitialFormState, payloadFromForm } from "@/lib/assetColumns";
 import { FieldSection } from "@/components/assets/FieldSection";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,8 @@ export function AssetForm({
   onCancelEdit,
 }) {
   const { auth } = useAuth();
+  const navigate = useNavigate();
+  const canEdit = canEditAssets(auth.user);
   const activeCategory = categories.find((category) => category.code === selectedCategory);
   const [formState, setFormState] = useState(
     () => initialFormState || makeInitialFormState(activeCategory)
@@ -50,6 +54,22 @@ export function AssetForm({
     setFormState(makeInitialFormState(category));
   }
 
+  function notifyDuplicateConflict(err) {
+    const conflicts = err instanceof ApiError ? err.conflicts : [];
+    const existingId = conflicts.find((entry) => entry.existingId != null)?.existingId;
+    toast.error(err.message);
+
+    if (canEdit && existingId != null) {
+      toast.message("Record already exists", {
+        description: "Open the existing asset to review it.",
+        action: {
+          label: "Open existing",
+          onClick: () => navigate(`/entry?edit=${existingId}`),
+        },
+      });
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
@@ -66,7 +86,11 @@ export function AssetForm({
       setFormState(makeInitialFormState(category));
       onSaved();
     } catch (err) {
-      toast.error(err.message);
+      if (err instanceof ApiError && err.status === 409) {
+        notifyDuplicateConflict(err);
+      } else {
+        toast.error(err.message);
+      }
     } finally {
       setSaving(false);
     }

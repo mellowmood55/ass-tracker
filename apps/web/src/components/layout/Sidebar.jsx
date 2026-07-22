@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, LogOut, Monitor, Settings } from "lucide-react";
+import { ChevronDown, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
 import { PRIMARY_NAV } from "@/lib/nav";
-import { SETTINGS_NAV } from "@/lib/settingsNav";
+import { getDefaultSettingsPath, getSettingsNavForRole } from "@/lib/settingsNav";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -12,10 +13,18 @@ const SETTINGS_PATH = "/settings";
 
 export function Sidebar({ onNavigate, riskCount = 0 }) {
   const { auth, logout } = useAuth();
+  const { theme, setTheme, resolvedDark } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const isSettingsRoute = location.pathname.startsWith(SETTINGS_PATH);
   const [settingsOpen, setSettingsOpen] = useState(isSettingsRoute);
+
+  const settingsNav = useMemo(
+    () => getSettingsNavForRole(auth.user?.role),
+    [auth.user?.role]
+  );
+  const settingsItem = PRIMARY_NAV.find((item) => item.to === SETTINGS_PATH);
+  const mainNavItems = PRIMARY_NAV.filter((item) => item.to !== SETTINGS_PATH);
 
   useEffect(() => {
     if (isSettingsRoute) {
@@ -23,19 +32,23 @@ export function Sidebar({ onNavigate, riskCount = 0 }) {
     }
   }, [isSettingsRoute]);
 
-  const isAdmin = auth.user?.role === "admin";
-  const settingsItem = isAdmin ? PRIMARY_NAV.find((item) => item.to === SETTINGS_PATH) : null;
-  const mainNavItems = PRIMARY_NAV.filter((item) => item.to !== SETTINGS_PATH);
-
   function toggleSettings() {
     setSettingsOpen((current) => {
       const next = !current;
       if (next && !isSettingsRoute) {
-        navigate(SETTINGS_NAV[0]?.to || SETTINGS_PATH);
+        navigate(getDefaultSettingsPath(auth.user?.role));
       }
       return next;
     });
   }
+
+  function cycleTheme() {
+    const order = ["light", "dark", "system"];
+    const index = order.indexOf(theme);
+    setTheme(order[(index + 1) % order.length]);
+  }
+
+  const ThemeIcon = theme === "system" ? Monitor : resolvedDark ? Moon : Sun;
 
   return (
     <div className="flex h-dvh flex-col bg-sidebar">
@@ -110,7 +123,7 @@ export function Sidebar({ onNavigate, riskCount = 0 }) {
 
             {settingsOpen && (
               <div className="ml-4 space-y-1 border-l border-border/60 pl-2">
-                {SETTINGS_NAV.map((item) => (
+                {settingsNav.map((item) => (
                   <NavLink
                     key={item.to}
                     to={item.to}
@@ -142,17 +155,28 @@ export function Sidebar({ onNavigate, riskCount = 0 }) {
               <p className="text-xs text-muted-foreground">Signed in as</p>
               <p className="truncate text-sm font-semibold text-foreground">{auth.user?.username}</p>
             </div>
-            {isAdmin && (
+            <div className="flex shrink-0 gap-1">
               <Button
                 variant="ghost"
                 size="icon"
-                className="shrink-0"
-                aria-label="Settings"
-                onClick={toggleSettings}
+                aria-label={`Theme: ${theme}. Click to change.`}
+                onClick={cycleTheme}
+              >
+                <ThemeIcon className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Account settings"
+                onClick={() => {
+                  navigate(getDefaultSettingsPath(auth.user?.role));
+                  setSettingsOpen(true);
+                  onNavigate?.();
+                }}
               >
                 <Settings className="h-4 w-4" />
               </Button>
-            )}
+            </div>
           </div>
         </div>
         <Button variant="outline" className="w-full justify-start gap-2" onClick={logout}>

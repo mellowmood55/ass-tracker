@@ -9,6 +9,18 @@ export function buildAssetQuery(filters = {}) {
   return queryString ? `?${queryString}` : "";
 }
 
+export class ApiError extends Error {
+  constructor(message, { status = 500, data = null } = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.data = data;
+    this.code = data && typeof data === "object" ? data.code : undefined;
+    this.conflicts =
+      data && typeof data === "object" && Array.isArray(data.conflicts) ? data.conflicts : [];
+  }
+}
+
 export async function api(path, options = {}, token) {
   const headers = {
     "Content-Type": "application/json",
@@ -37,7 +49,7 @@ export async function api(path, options = {}, token) {
       (data && typeof data === "object" && data?.errors?.join(" ")) ||
       (data && typeof data === "object" && data?.message) ||
       (typeof data === "string" ? data : "Request failed.");
-    throw new Error(messageText);
+    throw new ApiError(messageText, { status: response.status, data });
   }
 
   return data;

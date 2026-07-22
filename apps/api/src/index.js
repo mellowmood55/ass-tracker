@@ -10,7 +10,14 @@ const PDFDocument = require("pdfkit");
 const { z } = require("zod");
 
 const { query, withTransaction, initDb, isUniqueViolation } = require("./db");
-const { signToken, requireAuth } = require("./auth");
+const {
+  signToken,
+  requireAuth,
+  requireAdmin,
+  requireAdminForEdit,
+  normalizeRole,
+  ROLES,
+} = require("./auth");
 const { CATEGORY_CODES, CATEGORY_CONFIG, STATUS_BY_CATEGORY } = require("./catalog");
 const {
   loadAllCategoryConfigsForApi,
@@ -21,10 +28,15 @@ const {
   buildReportRowFromConfig,
 } = require("./categoryConfig");
 const { validateAssetPayload, collectBlankRequiredFields } = require("./validation");
+const {
+  resolveUniqueConflict,
+  duplicateFieldsFromConflictBody,
+} = require("./duplicateConflict");
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const isProduction = process.env.NODE_ENV === "production";
+const MIN_PASSWORD_LENGTH = 8;
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
@@ -32,6 +44,24 @@ app.use(express.json());
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+function mapUserRow(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    role: normalizeRole(row.role),
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function validatePasswordStrength(password) {
+  if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+  }
+  return null;
+}
 
 app.post("/api/auth/login", async (req, res) => {
   const loginSchema = z.object({
@@ -48,7 +78,7 @@ app.post("/api/auth/login", async (req, res) => {
 
   try {
     const result = await query(
-      "SELECT id, username, password_hash, role FROM users WHERE username = $1",
+      "SELECT id, username, password_hash, role, is_active FROM users WHERE lower(username) = lower($1)",
       [username]
     );
     const user = result.rows[0];
@@ -57,13 +87,17 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid username or password." });
     }
 
+    if (user.is_active === false) {
+      return res.status(403).json({ message: "This account is deactivated. Contact an admin." });
+    }
+
     const token = signToken(user);
     return res.json({
       token,
       user: {
         id: user.id,
         username: user.username,
-        role: user.role,
+        role: normalizeRole(user.role),
       },
     });
   } catch (error) {
@@ -72,12 +106,325 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-function requireAdmin(req, res, next) {
-  if (req.user?.role !== "admin") {
-    return res.status(403).json({ message: "Admin access required." });
+app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+  const schema = z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(1),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Current and new password are required." });
   }
-  return next();
-}
+
+  const { currentPassword, newPassword } = parsed.data;
+  const strengthError = validatePasswordStrength(newPassword);
+  if (strengthError) {
+    return res.status(400).json({ message: strengthError });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ message: "New password must differ from the current password." });
+  }
+
+  try {
+    const result = await query(
+      "SELECT id, username, password_hash FROM users WHERE id = $1",
+      [req.user.sub]
+    );
+    const user = result.rows[0];
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    if (!(await bcrypt.compare(currentPassword, user.password_hash))) {
+      return res.status(401).json({ message: "Current password is incorrect." });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await query(
+      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [hash, user.id]
+    );
+
+    await insertAuditLog(null, {
+      assetId: null,
+      action: "user.password_change",
+      user: req.user,
+      before: null,
+      after: { userId: user.id, username: user.username },
+    });
+
+    return res.json({ message: "Password updated." });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to change password." });
+  }
+});
+
+app.get("/api/users", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, username, role, is_active, created_at, updated_at
+       FROM users
+       ORDER BY username ASC`
+    );
+    return res.json({ users: result.rows.map(mapUserRow) });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to load users." });
+  }
+});
+
+app.post("/api/users", requireAuth, requireAdmin, async (req, res) => {
+  const schema = z.object({
+    username: z.string().trim().min(2).max(64),
+    password: z.string().min(1),
+    role: z.enum([ROLES.ADMIN, ROLES.OPERATOR]).default(ROLES.OPERATOR),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Username, password, and role are required." });
+  }
+
+  const username = parsed.data.username.trim();
+  const { password, role } = parsed.data;
+  const strengthError = validatePasswordStrength(password);
+  if (strengthError) {
+    return res.status(400).json({ message: strengthError });
+  }
+
+  try {
+    const existing = await query(
+      "SELECT id FROM users WHERE lower(username) = lower($1)",
+      [username]
+    );
+    if (existing.rows[0]) {
+      return res.status(409).json({ message: "Username already exists." });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    const insertResult = await query(
+      `INSERT INTO users (username, password_hash, role, is_active)
+       VALUES ($1, $2, $3, TRUE)
+       RETURNING id, username, role, is_active, created_at, updated_at`,
+      [username, hash, role]
+    );
+
+    const created = mapUserRow(insertResult.rows[0]);
+    await insertAuditLog(null, {
+      assetId: null,
+      action: "user.create",
+      user: req.user,
+      before: null,
+      after: created,
+    });
+
+    return res.status(201).json({ user: created });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return res.status(409).json({ message: "Username already exists." });
+    }
+    console.error(error);
+    return res.status(500).json({ message: "Failed to register user." });
+  }
+});
+
+app.patch("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ message: "Invalid user id." });
+  }
+
+  const schema = z
+    .object({
+      role: z.enum([ROLES.ADMIN, ROLES.OPERATOR]).optional(),
+      isActive: z.boolean().optional(),
+    })
+    .refine((data) => data.role !== undefined || data.isActive !== undefined, {
+      message: "Nothing to update.",
+    });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload." });
+  }
+
+  try {
+    const existingResult = await query(
+      "SELECT id, username, role, is_active, created_at, updated_at FROM users WHERE id = $1",
+      [id]
+    );
+    const existing = existingResult.rows[0];
+    if (!existing) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const nextRole = parsed.data.role ?? normalizeRole(existing.role);
+    const nextActive =
+      parsed.data.isActive !== undefined ? parsed.data.isActive : existing.is_active !== false;
+
+    if (id === Number(req.user.sub) && nextActive === false) {
+      return res.status(400).json({ message: "You cannot deactivate your own account." });
+    }
+
+    if (
+      id === Number(req.user.sub) &&
+      normalizeRole(existing.role) === ROLES.ADMIN &&
+      nextRole !== ROLES.ADMIN
+    ) {
+      return res.status(400).json({ message: "You cannot demote your own admin account." });
+    }
+
+    if (normalizeRole(existing.role) === ROLES.ADMIN && (nextRole !== ROLES.ADMIN || nextActive === false)) {
+      const adminCount = await query(
+        "SELECT COUNT(*)::int AS count FROM users WHERE role = 'admin' AND is_active = TRUE AND id <> $1",
+        [id]
+      );
+      if ((adminCount.rows[0]?.count || 0) < 1) {
+        return res.status(400).json({
+          message:
+            nextActive === false
+              ? "Cannot deactivate the last active admin."
+              : "Cannot demote the last active admin.",
+        });
+      }
+    }
+
+    const updateResult = await query(
+      `UPDATE users
+       SET role = $1,
+           is_active = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3
+       RETURNING id, username, role, is_active, created_at, updated_at`,
+      [nextRole, nextActive, id]
+    );
+
+    const before = mapUserRow(existing);
+    const after = mapUserRow(updateResult.rows[0]);
+    await insertAuditLog(null, {
+      assetId: null,
+      action: "user.update",
+      user: req.user,
+      before,
+      after,
+    });
+
+    return res.json({ user: after });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to update user." });
+  }
+});
+
+app.post("/api/users/:id/reset-password", requireAuth, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ message: "Invalid user id." });
+  }
+
+  const schema = z.object({
+    newPassword: z.string().min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "New password is required." });
+  }
+
+  const strengthError = validatePasswordStrength(parsed.data.newPassword);
+  if (strengthError) {
+    return res.status(400).json({ message: strengthError });
+  }
+
+  try {
+    const existingResult = await query(
+      "SELECT id, username FROM users WHERE id = $1",
+      [id]
+    );
+    const existing = existingResult.rows[0];
+    if (!existing) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const hash = await bcrypt.hash(parsed.data.newPassword, 10);
+    await query(
+      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [hash, id]
+    );
+
+    await insertAuditLog(null, {
+      assetId: null,
+      action: "user.password_reset",
+      user: req.user,
+      before: null,
+      after: { userId: existing.id, username: existing.username },
+    });
+
+    return res.json({ message: "Password reset." });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to reset password." });
+  }
+});
+
+app.delete("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ message: "Invalid user id." });
+  }
+
+  if (id === Number(req.user.sub)) {
+    return res.status(400).json({ message: "You cannot delete your own account." });
+  }
+
+  try {
+    const existingResult = await query(
+      "SELECT id, username, role, is_active, created_at, updated_at FROM users WHERE id = $1",
+      [id]
+    );
+    const existing = existingResult.rows[0];
+    if (!existing) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    if (normalizeRole(existing.role) === ROLES.ADMIN && existing.is_active !== false) {
+      const adminCount = await query(
+        "SELECT COUNT(*)::int AS count FROM users WHERE role = 'admin' AND is_active = TRUE AND id <> $1",
+        [id]
+      );
+      if ((adminCount.rows[0]?.count || 0) < 1) {
+        return res.status(400).json({ message: "Cannot delete the last active admin." });
+      }
+    }
+
+    const before = mapUserRow(existing);
+
+    await withTransaction(async (client) => {
+      await client.query("UPDATE assets SET created_by = NULL WHERE created_by = $1", [id]);
+      await client.query("UPDATE assets SET updated_by = NULL WHERE updated_by = $1", [id]);
+      await client.query("UPDATE audit_logs SET actor_id = NULL WHERE actor_id = $1", [id]);
+      await client.query(
+        "UPDATE category_field_configs SET updated_by = NULL WHERE updated_by = $1",
+        [id]
+      );
+      await client.query("DELETE FROM users WHERE id = $1", [id]);
+    });
+
+    await insertAuditLog(null, {
+      assetId: null,
+      action: "user.delete",
+      user: req.user,
+      before,
+      after: null,
+    });
+
+    return res.json({ message: "User deleted." });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to delete user." });
+  }
+});
 
 app.get("/api/categories", requireAuth, async (_req, res) => {
   try {
@@ -520,15 +867,17 @@ app.post("/api/assets", requireAuth, async (req, res) => {
     return res.status(201).json({ asset: mapped });
   } catch (error) {
     if (isUniqueViolation(error)) {
-      return res.status(409).json({ message: "Asset No or Serial No already exists." });
+      const body = await resolveUniqueConflict(error, asset);
+      return res.status(409).json(body);
     }
     console.error(error);
     return res.status(500).json({ message: "Failed to create asset." });
   }
 });
 
-app.put("/api/assets/:id", requireAuth, async (req, res) => {
+app.put("/api/assets/:id", requireAuth, requireAdminForEdit, async (req, res) => {
   const id = Number(req.params.id);
+  let asset = null;
 
   try {
     const existingResult = await query("SELECT * FROM assets WHERE id = $1", [id]);
@@ -542,7 +891,7 @@ app.put("/api/assets/:id", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Validation failed.", errors: result.errors });
     }
 
-    const asset = result.data;
+    asset = result.data;
 
     const updateResult = await query(
       `UPDATE assets
@@ -585,14 +934,15 @@ app.put("/api/assets/:id", requireAuth, async (req, res) => {
     return res.json({ asset: after });
   } catch (error) {
     if (isUniqueViolation(error)) {
-      return res.status(409).json({ message: "Asset No or Serial No already exists." });
+      const body = await resolveUniqueConflict(error, asset, { excludeId: id });
+      return res.status(409).json(body);
     }
     console.error(error);
     return res.status(500).json({ message: "Failed to update asset." });
   }
 });
 
-app.delete("/api/assets/:id", requireAuth, async (req, res) => {
+app.delete("/api/assets/:id", requireAuth, requireAdminForEdit, async (req, res) => {
   const id = Number(req.params.id);
 
   try {
@@ -726,52 +1076,81 @@ app.post("/api/assets/import", requireAuth, async (req, res) => {
         if (assetNo) seenAssetNos.add(assetNo);
         if (serialNo) seenSerialNos.add(serialNo);
 
-        const insertResult = await client.query(
-          `INSERT INTO assets (
-            category,
-            location,
-            office,
-            model,
-            asset_no,
-            serial_no,
-            status,
-            details_json,
-            created_by,
-            updated_by
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-          RETURNING *`,
-          [
-            asset.category,
-            asset.location || null,
-            asset.office || null,
-            asset.model || null,
-            assetNo,
-            serialNo,
-            asset.status,
-            JSON.stringify(asset.details || {}),
-            req.user.sub,
-            req.user.sub,
-          ]
-        );
+        const savepoint = `sp_import_${index}`;
+        try {
+          await client.query(`SAVEPOINT ${savepoint}`);
+          const insertResult = await client.query(
+            `INSERT INTO assets (
+              category,
+              location,
+              office,
+              model,
+              asset_no,
+              serial_no,
+              status,
+              details_json,
+              created_by,
+              updated_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+            RETURNING *`,
+            [
+              asset.category,
+              asset.location || null,
+              asset.office || null,
+              asset.model || null,
+              assetNo,
+              serialNo,
+              asset.status,
+              JSON.stringify(asset.details || {}),
+              req.user.sub,
+              req.user.sub,
+            ]
+          );
 
-        const mapped = mapAssetRow(insertResult.rows[0]);
-        await insertAuditLog(client, {
-          assetId: mapped.id,
-          action: "create",
-          user: req.user,
-          before: null,
-          after: mapped,
-        });
-        createdRows.push(mapped);
+          const mapped = mapAssetRow(insertResult.rows[0]);
+          await insertAuditLog(client, {
+            assetId: mapped.id,
+            action: "create",
+            user: req.user,
+            before: null,
+            after: mapped,
+          });
+          await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+          createdRows.push(mapped);
 
-        if (blankFields.length > 0) {
+          if (blankFields.length > 0) {
+            attention.push({
+              row: index + 1,
+              reason: "blank",
+              id: mapped.id,
+              assetNo: mapped.assetNo || null,
+              serialNo: mapped.serialNo || null,
+              blankFields,
+            });
+          }
+        } catch (insertError) {
+          await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+          if (!isUniqueViolation(insertError)) {
+            throw insertError;
+          }
+
+          const conflictBody = await resolveUniqueConflict(insertError, asset);
+          const raceDuplicateFields =
+            duplicateFieldsFromConflictBody(conflictBody).length > 0
+              ? duplicateFieldsFromConflictBody(conflictBody)
+              : ["Asset No or Serial No"];
+          const raceExistingId = conflictBody.conflicts?.[0]?.existingId ?? null;
+
+          skippedCount += 1;
           attention.push({
             row: index + 1,
-            reason: "blank",
-            id: mapped.id,
-            assetNo: mapped.assetNo || null,
-            serialNo: mapped.serialNo || null,
-            blankFields,
+            reason: "duplicate",
+            id: raceExistingId,
+            assetNo,
+            serialNo,
+            blankFields: [],
+            duplicateFields: raceDuplicateFields,
+            existingId: raceExistingId,
           });
         }
       }

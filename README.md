@@ -2,7 +2,10 @@
 
 Cloud-ready asset tracker for ICT teams with:
 - Local account login (JWT)
-- Mobile-first tabbed UI (Dashboard, Entry, Import, Assets)
+- Admin and operator roles (operators create/import/read; admins edit/delete/settings)
+- Account password change and admin user registration
+- Light / dark / system appearance matching the warm forest brand
+- Mobile-first tabbed UI (Dashboard, Entry, Import, Assets, Settings)
 - Category-driven input forms
 - Category-specific statuses and validation
 - Asset CRUD with search/filter
@@ -32,7 +35,21 @@ ass-tracker/
 - Username: admin
 - Password: admin123
 
-Change this account password immediately for production use.
+Change this account password immediately for production use (Settings → Account). Register operators under Settings → Users.
+
+### Roles
+
+| Role | Capabilities |
+|------|----------------|
+| **admin** | Full access: edit/delete assets, category fields, register users |
+| **operator** | Create assets, import, view assets/reports/insights/audit; cannot edit or delete |
+
+### Concurrent entry and duplicates
+
+- **First write wins** for the same non-blank Asset No or Serial No (enforced by Postgres unique indexes).
+- A later Entry submitter receives a clear **409** toast (e.g. “This Asset No already exists.”). Admins also get an **Open existing** shortcut.
+- Import soft-skips duplicate rows (including races with another user’s create) and continues the rest of the batch.
+- Identity values are trimmed before save so surrounding spaces do not create false “unique” tags.
 
 ## How to run (new setup)
 

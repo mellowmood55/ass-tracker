@@ -1,13 +1,21 @@
+import { useMemo } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { SETTINGS_NAV } from "@/lib/settingsNav";
+import { useAuth } from "@/context/AuthContext";
+import { getSettingsNavForRole } from "@/lib/settingsNav";
 import { cn } from "@/lib/utils";
 
 export function SettingsHubPage() {
+  const { auth } = useAuth();
+  const settingsNav = useMemo(
+    () => getSettingsNavForRole(auth.user?.role),
+    [auth.user?.role]
+  );
+
   return (
     <div className="space-y-4">
-      {SETTINGS_NAV.length > 1 && (
+      {settingsNav.length > 1 && (
         <nav className="flex gap-2 overflow-x-auto pb-1 md:hidden" aria-label="Settings">
-          {SETTINGS_NAV.map((item) => (
+          {settingsNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
