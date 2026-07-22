@@ -13,7 +13,6 @@ export function ImportPage() {
   return (
     <div className="space-y-5 animate-in-fade">
       <PageHeader
-        eyebrow="Bulk upload"
         title="Import Data"
         description="Upload CSV or Excel, review column mapping, then import."
       />

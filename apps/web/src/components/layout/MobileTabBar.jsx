@@ -3,13 +3,15 @@ import { PRIMARY_NAV } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 export function MobileTabBar({ riskCount = 0 }) {
+  const items = PRIMARY_NAV;
+
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(30,70,32,0.08)] backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(30,70,32,0.08)] backdrop-blur dark:shadow-[0_-8px_24px_rgba(0,0,0,0.35)] md:hidden"
       aria-label="Primary"
     >
-      <ul className="grid h-16 grid-cols-4">
-        {PRIMARY_NAV.map(({ to, shortLabel, icon: Icon, end }) => (
+      <ul className="grid h-16 grid-cols-5">
+        {items.map(({ to, shortLabel, icon: Icon, end }) => (
           <li key={to} className="min-w-0">
             <NavLink
               to={to}
@@ -37,7 +39,10 @@ export function MobileTabBar({ riskCount = 0 }) {
                       )}
                     />
                     {to === "/" && riskCount > 0 && (
-                      <span className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-white">
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-white"
+                      >
                         {riskCount > 99 ? "99+" : riskCount}
                       </span>
                     )}

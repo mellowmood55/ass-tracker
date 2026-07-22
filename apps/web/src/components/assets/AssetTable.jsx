@@ -6,12 +6,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useDataRefresh } from "@/context/DataRefreshContext";
 import { api } from "@/lib/api";
 import {
-  CATEGORY_LIST_COLUMNS,
+  buildAssetColumnsFromCategory,
   getRiskLabel,
   getRiskVariant,
   matchesRiskFilter,
 } from "@/lib/assetColumns";
 import { PAGE_SIZE } from "@/lib/constants";
+import { canEditAssets } from "@/lib/roles";
 import { DeleteConfirmDialog } from "@/components/assets/DeleteConfirmDialog";
 import { AuditLogSheet } from "@/components/audit/AuditLogSheet";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 function formatCardIdentity(asset) {
   const parts = [asset.assetNo, asset.model, asset.serialNo].filter(Boolean);
@@ -39,8 +41,12 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [auditAsset, setAuditAsset] = useState(null);
+  const canEdit = canEditAssets(auth.user);
 
-  const columns = CATEGORY_LIST_COLUMNS[category.code] || [];
+  const columns = useMemo(
+    () => buildAssetColumnsFromCategory(category),
+    [category]
+  );
 
   const filteredAssets = useMemo(
     () => assets.filter((asset) => matchesRiskFilter(asset, riskFilter)),
@@ -144,7 +150,6 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
                 {columns.map((column) => (
                   <TableHead key={column.label}>{column.label}</TableHead>
                 ))}
@@ -157,7 +162,6 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
                 const riskLabel = getRiskLabel(asset);
                 return (
                   <TableRow key={asset.id} className="transition-colors hover:bg-accent/40">
-                    <TableCell className="font-medium">{asset.id}</TableCell>
                     {columns.map((column) => (
                       <TableCell key={`${asset.id}-${column.label}`}>{column.value(asset)}</TableCell>
                     ))}
@@ -170,14 +174,16 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Edit asset ${asset.id}`}
-                          onClick={() => navigate(buildEditPath(asset.id))}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Edit asset ${asset.id}`}
+                            onClick={() => navigate(buildEditPath(asset.id))}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -186,14 +192,16 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
                         >
                           <History className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Delete asset ${asset.id}`}
-                          onClick={() => setDeleteTarget(asset)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Delete asset ${asset.id}`}
+                            onClick={() => setDeleteTarget(asset)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -215,7 +223,6 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">#{asset.id}</p>
                   <p className="truncate text-base font-semibold text-foreground">
                     {formatCardIdentity(asset)}
                   </p>
@@ -227,16 +234,18 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
                   </Badge>
                 ) : null}
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11"
-                  onClick={() => navigate(buildEditPath(asset.id))}
-                >
-                  <Pencil className="h-4 w-4" />
-                  Edit
-                </Button>
+              <div className={cn("mt-4 grid gap-2", canEdit ? "grid-cols-3" : "grid-cols-1")}>
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11"
+                    onClick={() => navigate(buildEditPath(asset.id))}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="outline"
@@ -246,15 +255,17 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
                   <History className="h-4 w-4" />
                   History
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 text-destructive hover:text-destructive"
-                  onClick={() => setDeleteTarget(asset)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Delete
-                </Button>
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 text-destructive hover:text-destructive"
+                    onClick={() => setDeleteTarget(asset)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </Button>
+                )}
               </div>
             </article>
           );

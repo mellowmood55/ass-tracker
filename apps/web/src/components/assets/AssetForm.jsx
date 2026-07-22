@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { canEditAssets } from "@/lib/roles";
 import { makeInitialFormState, payloadFromForm } from "@/lib/assetColumns";
-import { DynamicField } from "@/components/assets/DynamicField";
+import { FieldSection } from "@/components/assets/FieldSection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -27,6 +29,8 @@ export function AssetForm({
   onCancelEdit,
 }) {
   const { auth } = useAuth();
+  const navigate = useNavigate();
+  const canEdit = canEditAssets(auth.user);
   const activeCategory = categories.find((category) => category.code === selectedCategory);
   const [formState, setFormState] = useState(
     () => initialFormState || makeInitialFormState(activeCategory)
@@ -34,13 +38,36 @@ export function AssetForm({
   const [saving, setSaving] = useState(false);
 
   function handleFieldChange(fieldName, value) {
-    setFormState((current) => ({ ...current, [fieldName]: value }));
+    setFormState((current) => {
+      const next = { ...current, [fieldName]: value };
+      if (fieldName === "antivirusInstalled" && value !== true) {
+        next.antivirusType = "";
+        next.remainingSubscriptionDays = "";
+      }
+      return next;
+    });
   }
 
   function handleCategoryChange(code) {
     const category = categories.find((entry) => entry.code === code);
     onCategoryChange(code);
     setFormState(makeInitialFormState(category));
+  }
+
+  function notifyDuplicateConflict(err) {
+    const conflicts = err instanceof ApiError ? err.conflicts : [];
+    const existingId = conflicts.find((entry) => entry.existingId != null)?.existingId;
+    toast.error(err.message);
+
+    if (canEdit && existingId != null) {
+      toast.message("Record already exists", {
+        description: "Open the existing asset to review it.",
+        action: {
+          label: "Open existing",
+          onClick: () => navigate(`/entry?edit=${existingId}`),
+        },
+      });
+    }
   }
 
   async function handleSubmit(event) {
@@ -59,7 +86,11 @@ export function AssetForm({
       setFormState(makeInitialFormState(category));
       onSaved();
     } catch (err) {
-      toast.error(err.message);
+      if (err instanceof ApiError && err.status === 409) {
+        notifyDuplicateConflict(err);
+      } else {
+        toast.error(err.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -101,41 +132,27 @@ export function AssetForm({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <h3 className="mb-3 text-sm font-semibold text-primary">Shared Fields</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {activeCategory?.sharedFields.map((field) => (
-                <DynamicField
-                  key={field.name}
-                  field={field}
-                  value={formState[field.name]}
-                  onChange={handleFieldChange}
-                  selectedCategory={selectedCategory}
-                  activeCategory={activeCategory}
-                  formState={formState}
-                />
-              ))}
-            </div>
-          </div>
+          <FieldSection
+            title="Shared Fields"
+            scope="shared"
+            fields={activeCategory?.sharedFields || []}
+            groups={activeCategory?.groups || []}
+            formState={formState}
+            onChange={handleFieldChange}
+            selectedCategory={selectedCategory}
+            activeCategory={activeCategory}
+          />
 
-          {activeCategory?.detailFields.length > 0 && (
-            <div>
-              <h3 className="mb-3 text-sm font-semibold text-primary">Category Details</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {activeCategory.detailFields.map((field) => (
-                  <DynamicField
-                    key={field.name}
-                    field={field}
-                    value={formState[field.name]}
-                    onChange={handleFieldChange}
-                    selectedCategory={selectedCategory}
-                    activeCategory={activeCategory}
-                    formState={formState}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+          <FieldSection
+            title="Category Details"
+            scope="detail"
+            fields={activeCategory?.detailFields || []}
+            groups={activeCategory?.groups || []}
+            formState={formState}
+            onChange={handleFieldChange}
+            selectedCategory={selectedCategory}
+            activeCategory={activeCategory}
+          />
 
           <div className="sticky bottom-20 z-10 flex flex-wrap gap-2 border-t bg-card pt-4 md:bottom-0">
             <Button type="submit" disabled={saving}>

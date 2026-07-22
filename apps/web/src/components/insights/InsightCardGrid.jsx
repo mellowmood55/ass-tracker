@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Monitor, Shield, ShieldAlert, ShieldX } from "lucide-react";
+import { Boxes, Monitor, Shield, ShieldAlert, ShieldX } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,7 @@ const insightCards = [
   {
     key: "assets",
     label: "Total Assets",
-    icon: AlertTriangle,
+    icon: Boxes,
     risk: null,
     variant: "neutral",
   },

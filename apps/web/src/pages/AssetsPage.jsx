@@ -76,6 +76,15 @@ export function AssetsPage() {
 
   const { assets, loading, reload } = useAssets(filters);
 
+  const statusOptions = useMemo(() => {
+    const fromAssets = assets
+      .map((asset) => String(asset.status || "").trim())
+      .filter(Boolean);
+    return [...new Set([...ALL_STATUSES, ...fromAssets])].sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [assets]);
+
   const returnTo = riskFilter ? `/assets?risk=${riskFilter}` : "/assets";
 
   const visibleCategories = useMemo(() => {
@@ -163,7 +172,6 @@ export function AssetsPage() {
   return (
     <div className="space-y-5 animate-in-fade">
       <PageHeader
-        eyebrow="Inventory"
         title="Assets"
         description="Browse one category at a time. Export reports or jump to Import."
         actions={
@@ -261,7 +269,7 @@ export function AssetsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              {ALL_STATUSES.map((status) => (
+              {statusOptions.map((status) => (
                 <SelectItem key={status} value={status}>
                   {status}
                 </SelectItem>

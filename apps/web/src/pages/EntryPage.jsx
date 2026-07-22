@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AssetForm } from "@/components/assets/AssetForm";
+import { useAuth } from "@/context/AuthContext";
 import { useDataRefresh } from "@/context/DataRefreshContext";
 import { useCategories } from "@/hooks/useCategories";
 import { useAssets } from "@/hooks/useAssets";
 import { formStateFromAsset, makeInitialFormState } from "@/lib/assetColumns";
 import { EMPTY_FILTERS } from "@/lib/constants";
+import { canEditAssets } from "@/lib/roles";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function EntryPage() {
@@ -14,15 +17,24 @@ export function EntryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const editId = searchParams.get("edit");
   const returnTo = searchParams.get("returnTo");
+  const { auth } = useAuth();
   const { bump } = useDataRefresh();
+  const canEdit = canEditAssets(auth.user);
+
+  useEffect(() => {
+    if (editId && !canEdit) {
+      toast.error("Only admins can edit assets.");
+      navigate(returnTo || "/assets", { replace: true });
+    }
+  }, [editId, canEdit, navigate, returnTo]);
 
   const { categories, loading: categoriesLoading } = useCategories();
   const { assets, loading: assetsLoading } = useAssets(EMPTY_FILTERS);
 
   const editAsset = useMemo(() => {
-    if (!editId) return null;
+    if (!editId || !canEdit) return null;
     return assets.find((entry) => String(entry.id) === editId) || null;
-  }, [editId, assets]);
+  }, [editId, assets, canEdit]);
 
   const defaultCategory = categories[0]?.code || "";
   const [manualCategory, setManualCategory] = useState(null);
@@ -72,12 +84,16 @@ export function EntryPage() {
     setManualCategory(null);
   }
 
-  const loading = categoriesLoading || (Boolean(editId) && assetsLoading);
+  const loading = categoriesLoading || (Boolean(editId) && canEdit && assetsLoading);
+  const blockedEdit = Boolean(editId) && !canEdit;
+
+  if (blockedEdit) {
+    return <Skeleton className="h-80 w-full" />;
+  }
 
   return (
     <div className="space-y-5 animate-in-fade">
       <PageHeader
-        eyebrow="Data entry"
         title={editingId ? `Edit Asset #${editingId}` : "Add Asset"}
         description={
           editingId

@@ -49,7 +49,9 @@ async function initDb() {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'admin',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS assets (
@@ -89,7 +91,29 @@ async function initDb() {
       after_json JSONB,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS category_field_configs (
+      category_code TEXT PRIMARY KEY,
+      config_json JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_by INTEGER REFERENCES users(id)
+    );
   `);
+
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+  `);
+
+  await pool.query(`
+    UPDATE users
+    SET role = 'operator'
+    WHERE lower(trim(role)) NOT IN ('admin', 'operator')
+  `);
+
+  const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD || "admin123";
+  const resetDefaultAdmin =
+    String(process.env.RESET_DEFAULT_ADMIN_PASSWORD || "").toLowerCase() === "true";
 
   const existingAdmin = await pool.query(
     "SELECT id FROM users WHERE username = $1",
@@ -97,12 +121,27 @@ async function initDb() {
   );
 
   if (existingAdmin.rows.length === 0) {
-    const hash = await bcrypt.hash("admin123", 10);
+    const hash = await bcrypt.hash(defaultAdminPassword, 10);
     await pool.query(
-      "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
+      "INSERT INTO users (username, password_hash, role, is_active) VALUES ($1, $2, $3, TRUE)",
       ["admin", hash, "admin"]
     );
+  } else if (resetDefaultAdmin) {
+    const hash = await bcrypt.hash(defaultAdminPassword, 10);
+    await pool.query(
+      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE username = $2",
+      [hash, "admin"]
+    );
   }
+
+  const {
+    seedCategoryFieldConfigs,
+    patchStoredCategoryDefaults,
+    refreshConfigCache,
+  } = require("./categoryConfig");
+  await seedCategoryFieldConfigs();
+  await patchStoredCategoryDefaults();
+  await refreshConfigCache();
 }
 
 module.exports = {

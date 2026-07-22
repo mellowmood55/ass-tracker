@@ -12,13 +12,10 @@ function formatAssetIdentity(asset) {
 }
 
 function formatDaysHint(asset) {
+  if (asset.remainingSubscriptionDays == null) return null;
   const days = Number(asset.remainingSubscriptionDays);
-  if (!Number.isFinite(days)) {
-    return null;
-  }
-  if (days <= 0) {
-    return "Expired";
-  }
+  if (!Number.isFinite(days)) return null;
+  if (days <= 0) return "Expired";
   return `${days} day${days === 1 ? "" : "s"} left`;
 }
 

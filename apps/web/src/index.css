@@ -77,6 +77,40 @@
   --sidebar-ring: #143318;
 }
 
+.dark {
+  --background: #1a1612;
+  --foreground: #f3ebe3;
+  --card: #24201b;
+  --card-foreground: #f3ebe3;
+  --popover: #24201b;
+  --popover-foreground: #f3ebe3;
+  --primary: #3d7a45;
+  --primary-foreground: #f4fff4;
+  --secondary: #2f2a24;
+  --secondary-foreground: #e8dcd0;
+  --muted: #2a251f;
+  --muted-foreground: #b5a496;
+  --accent: #2a3a2c;
+  --accent-foreground: #d7ead8;
+  --destructive: #ef4444;
+  --border: #3d342c;
+  --input: #3d342c;
+  --ring: #3d7a45;
+  --chart-1: #3d7a45;
+  --chart-2: #5ea366;
+  --chart-3: #c4a574;
+  --chart-4: #f0a14a;
+  --chart-5: #ef4444;
+  --sidebar: #151210;
+  --sidebar-foreground: #f3ebe3;
+  --sidebar-primary: #3d7a45;
+  --sidebar-primary-foreground: #f4fff4;
+  --sidebar-accent: #2a3a2c;
+  --sidebar-accent-foreground: #d7ead8;
+  --sidebar-border: #3d342c;
+  --sidebar-ring: #3d7a45;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -91,6 +125,13 @@
       linear-gradient(180deg, #f7f2eb 0%, #ebe6df 48%, #e4dcd2 100%);
     background-attachment: fixed;
     min-height: 100dvh;
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(ellipse 80% 50% at 0% -10%, rgba(61, 122, 69, 0.18), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 100% 0%, rgba(185, 28, 28, 0.1), transparent 45%),
+      linear-gradient(180deg, #1f1a15 0%, #1a1612 48%, #151210 100%);
   }
 }
 

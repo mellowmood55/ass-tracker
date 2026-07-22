@@ -10,12 +10,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 export function DynamicField({ field, value, onChange, selectedCategory, activeCategory, formState }) {
-  if (
-    selectedCategory === "computer" &&
-    ["antivirusType", "remainingSubscriptionDays"].includes(field.name) &&
-    !formState.antivirusInstalled
-  ) {
-    return null;
+  if (field.showWhen) {
+    const sourceValue = formState[field.showWhen.field];
+    if (sourceValue !== field.showWhen.equals) {
+      return null;
+    }
   }
 
   if (field.type === "boolean") {

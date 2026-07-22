@@ -2,7 +2,10 @@
 
 Cloud-ready asset tracker for ICT teams with:
 - Local account login (JWT)
-- Mobile-first tabbed UI (Dashboard, Entry, Import, Assets)
+- Admin and operator roles (operators create/import/read; admins edit/delete/settings)
+- Account password change and admin user registration
+- Light / dark / system appearance matching the warm forest brand
+- Mobile-first tabbed UI (Dashboard, Entry, Import, Assets, Settings)
 - Category-driven input forms
 - Category-specific statuses and validation
 - Asset CRUD with search/filter
@@ -10,6 +13,7 @@ Cloud-ready asset tracker for ICT teams with:
 - Stepped CSV/XLS/XLSX import with column mapping memory
 - Priority risk alerts (antivirus + outdated OS)
 - Neon Postgres persistence (shared across devices)
+- Admin category field settings (grouped headers, aliases, fixed select values)
 - Basic audit trail
 
 ## Tech Stack
@@ -31,7 +35,21 @@ ass-tracker/
 - Username: admin
 - Password: admin123
 
-Change this account password immediately for production use.
+Change this account password immediately for production use (Settings → Account). Register operators under Settings → Users.
+
+### Roles
+
+| Role | Capabilities |
+|------|----------------|
+| **admin** | Full access: edit/delete assets, category fields, register users |
+| **operator** | Create assets, import, view assets/reports/insights/audit; cannot edit or delete |
+
+### Concurrent entry and duplicates
+
+- **First write wins** for the same non-blank Asset No or Serial No (enforced by Postgres unique indexes).
+- A later Entry submitter receives a clear **409** toast (e.g. “This Asset No already exists.”). Admins also get an **Open existing** shortcut.
+- Import soft-skips duplicate rows (including races with another user’s create) and continues the rest of the batch.
+- Identity values are trimmed before save so surrounding spaces do not create false “unique” tags.
 
 ## How to run (new setup)
 
@@ -73,6 +91,20 @@ Both apps use the same Neon database from `apps/api/.env`, so data stays in sync
 | Connection / SSL errors | Use Neon’s pooled URL and keep `?sslmode=require` |
 | Old `server/` or `client/` paths | Use `apps/api` and `apps/web` only |
 | Port in use | Stop the old process or change `PORT` in `.env` |
+| `Cannot find module '@rolldown/binding-…'` / Vite native binding error | Delete `apps/web/node_modules`, run `npm install --prefix apps/web`, then `npm run dev` again. If it persists, also delete `apps/web/package-lock.json` and reinstall. |
+| Default `admin` / `admin123` login fails | The Neon `admin` password was changed. From repo root run `npm run reset-admin --prefix apps/api`, or set `RESET_DEFAULT_ADMIN_PASSWORD=true` in `apps/api/.env`, restart the API once, then remove that line. |
+| Entry/Import fields look outdated after editing settings | Save in **Settings**, then refresh Entry or Import. Category config is loaded from the API on each page load. |
+
+### Category field settings
+
+Admins can open **Settings** (gear beside the signed-in user, or the Settings tab on mobile) to edit fields per category:
+
+- Add/remove custom fields and groups (locked system fields cannot be removed)
+- Mark fields as required
+- Set fixed values for select fields
+- Add import aliases for spreadsheet column matching
+
+Computer imports and templates support **two-row grouped headers** (group row + subheader row), for example `Operating System` above `Operating System Version` and `Wi-Fi Drivers`.
 
 ### Optional LAN UI (API still uses Neon)
 
