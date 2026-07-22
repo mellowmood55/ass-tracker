@@ -11,6 +11,7 @@
 - Office LAN deploy scripts (`build-office.cmd`, `start-office.cmd`) and README guide for production hosting on one ICT PC.
 
 ### Changed
+- API authentication now reloads each token's current user role and active status before authorizing requests.
 - Asset No / Serial No (and shared text fields) are trimmed on validate before persistence.
 - Entry form surfaces duplicate conflicts with an admin “Open existing” action.
 - Production API binds to `0.0.0.0` by default so LAN devices can reach the host PC.

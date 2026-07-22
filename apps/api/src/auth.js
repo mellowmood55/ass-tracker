@@ -30,25 +30,64 @@ function signToken(user) {
   );
 }
 
-function requireAuth(req, res, next) {
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-
-  if (!token) {
-    return res.status(401).json({ message: "Missing bearer token." });
+async function findUserById(userId) {
+  const id = Number(userId);
+  if (!Number.isFinite(id)) {
+    return null;
   }
 
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = {
-      ...payload,
-      role: normalizeRole(payload.role),
-    };
-    return next();
-  } catch {
-    return res.status(401).json({ message: "Invalid or expired token." });
-  }
+  const { query } = require("./db");
+  const result = await query(
+    "SELECT id, username, role, is_active FROM users WHERE id = $1",
+    [id]
+  );
+  return result.rows[0] || null;
 }
+
+function isActiveUser(user) {
+  return user?.is_active !== false && user?.isActive !== false;
+}
+
+function createRequireAuth({ findCurrentUser = findUserById } = {}) {
+  return async function requireAuth(req, res, next) {
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+
+    if (!token) {
+      return res.status(401).json({ message: "Missing bearer token." });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ message: "Invalid or expired token." });
+    }
+
+    try {
+      const currentUser = await findCurrentUser(payload.sub);
+      if (!currentUser) {
+        return res.status(401).json({ message: "Invalid or expired token." });
+      }
+
+      if (!isActiveUser(currentUser)) {
+        return res.status(403).json({ message: "This account is deactivated. Contact an admin." });
+      }
+
+      req.user = {
+        sub: currentUser.id,
+        username: currentUser.username,
+        role: normalizeRole(currentUser.role),
+      };
+      return next();
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ message: "Authentication failed." });
+    }
+  };
+}
+
+const requireAuth = createRequireAuth();
 
 function requireAdmin(req, res, next) {
   if (!isAdminRole(req.user?.role)) {
@@ -70,6 +109,8 @@ module.exports = {
   normalizeRole,
   isAdminRole,
   signToken,
+  createRequireAuth,
+  findUserById,
   requireAuth,
   requireAdmin,
   requireAdminForEdit,
