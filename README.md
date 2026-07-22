@@ -106,13 +106,96 @@ Admins can open **Settings** (gear beside the signed-in user, or the Settings ta
 
 Computer imports and templates support **two-row grouped headers** (group row + subheader row), for example `Operating System` above `Operating System Version` and `Wi-Fi Drivers`.
 
-### Optional LAN UI (API still uses Neon)
+## Office LAN deploy (recommended for ICT office)
+
+Use this when staff on the same Wi‑Fi / Ethernet should open the app in a browser **without** running `npm run dev`. One host PC runs a single production server (API + built UI on port **4000**). The database still uses Neon, so that PC needs internet.
+
+### 1. Prepare the host PC
+
+1. Choose a desktop that stays on during office hours.
+2. Install [Node.js 20+](https://nodejs.org/) if needed.
+3. Clone or pull this repo (e.g. `C:\Users\mello\projects\ass-tracker`).
+4. Ensure `apps/api/.env` has:
+
+```env
+PORT=4000
+NODE_ENV=production
+JWT_SECRET=replace-with-a-long-random-secret
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
+```
+
+5. Note the PC’s LAN IPv4 (`ipconfig`). Reserve that address in the router DHCP so it does not change.
+6. Change the default admin password (Settings → Account) and register operators (Settings → Users).
+
+### 2. Build once (and after every `git pull`)
+
+Double-click **`build-office.cmd`**, or from the repo root:
+
+```powershell
+npm run install:all
+npm run build
+```
+
+### 3. Start the office server
+
+Double-click **`start-office.cmd`**, or:
+
+```powershell
+$env:NODE_ENV="production"
+$env:HOST="0.0.0.0"
+npm start
+```
+
+Leave that window open (or use Task Scheduler below).
+
+### 4. Allow LAN access (Windows Firewall)
+
+On the **host PC**, in an elevated PowerShell:
+
+```powershell
+New-NetFirewallRule -DisplayName "ICT Asset Tracker" -Direction Inbound -Protocol TCP -LocalPort 4000 -Action Allow
+```
+
+### 5. What staff do
+
+On any office device, open:
+
+`http://HOST-LAN-IP:4000`
+
+Example: `http://192.168.1.50:4000`
+
+Bookmark that URL or add a desktop shortcut. No Node install is required on staff machines.
+
+### 6. Auto-start after reboot (Task Scheduler)
+
+1. Create a task that runs at logon (or startup).
+2. Action: start `C:\Users\mello\projects\ass-tracker\start-office.cmd`
+3. Optionally set “Start in” to the repo folder.
+
+For a always-on Windows **service**, use [NSSM](https://nssm.cc/) pointing at `node` with `apps\api\src\index.js`, working directory `apps\api`, and the same env vars as `.env` / `NODE_ENV=production` / `HOST=0.0.0.0`.
+
+### 7. After code updates
+
+On the host PC only:
+
+```powershell
+git pull origin main
+build-office.cmd
+```
+
+Then restart `start-office.cmd` (or the scheduled task / service).
+
+### Dev-only LAN preview (not for daily office use)
+
+For quick testing with hot reload:
 
 1. Find your PC LAN IP (`ipconfig` → IPv4).
 2. In `apps/web/.env` set `VITE_API_BASE=http://YOUR_LAN_IP:4000`.
-3. Run `npm run dev:lan` and open `http://YOUR_LAN_IP:5173` on a phone on the same Wi‑Fi.
+3. Run `npm run dev:lan` and open `http://YOUR_LAN_IP:5173`.
 
-## Deploy on Render (multi-device access)
+Prefer **`build-office.cmd` + `start-office.cmd`** for real office use.
+
+## Deploy on Render (internet / multi-site access)
 
 1. Push this repo to GitHub.
 2. Create a **Web Service** on [Render](https://render.com) from the repo.
@@ -153,9 +236,10 @@ Backend example: `apps/api/.env.example`
 | `DATABASE_URL` | Neon Postgres connection string (required) |
 | `JWT_SECRET` | JWT signing secret |
 | `PORT` | API port (default `4000`) |
-| `NODE_ENV` | Set `production` on Render to serve the built UI |
+| `HOST` | Bind address (default `0.0.0.0` in production for LAN) |
+| `NODE_ENV` | Set `production` to serve the built UI from Express |
 
-Optional frontend override for local/LAN: `VITE_API_BASE=http://localhost:4000`
+Optional frontend override for local/LAN **dev** only: `VITE_API_BASE=http://localhost:4000`
 
 ## App tabs
 

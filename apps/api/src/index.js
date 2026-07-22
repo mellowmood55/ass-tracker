@@ -1225,9 +1225,19 @@ app.use((err, _req, res, _next) => {
 
 async function start() {
   await initDb();
-  app.listen(port, () => {
-    console.log(`Asset tracker API running on port ${port}`);
-  });
+  const host = process.env.HOST || (isProduction ? "0.0.0.0" : undefined);
+  const onListen = () => {
+    const bind = host || "localhost";
+    console.log(`Asset tracker API running on ${bind}:${port}`);
+    if (isProduction) {
+      console.log(`Office LAN: open http://<this-pc-lan-ip>:${port} on other devices`);
+    }
+  };
+  if (host) {
+    app.listen(port, host, onListen);
+  } else {
+    app.listen(port, onListen);
+  }
 }
 
 start().catch((error) => {
