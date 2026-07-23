@@ -32,6 +32,11 @@ const {
   resolveUniqueConflict,
   duplicateFieldsFromConflictBody,
 } = require("./duplicateConflict");
+const {
+  lockUserAdminSafety,
+  isActiveAdminRow,
+  ensureAnotherActiveAdmin,
+} = require("./userAdminSafety");
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -251,68 +256,78 @@ app.patch("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
   }
 
   try {
-    const existingResult = await query(
-      "SELECT id, username, role, is_active, created_at, updated_at FROM users WHERE id = $1",
-      [id]
-    );
-    const existing = existingResult.rows[0];
-    if (!existing) {
-      return res.status(404).json({ message: "User not found." });
-    }
+    const after = await withTransaction(async (client) => {
+      await lockUserAdminSafety(client);
 
-    const nextRole = parsed.data.role ?? normalizeRole(existing.role);
-    const nextActive =
-      parsed.data.isActive !== undefined ? parsed.data.isActive : existing.is_active !== false;
-
-    if (id === Number(req.user.sub) && nextActive === false) {
-      return res.status(400).json({ message: "You cannot deactivate your own account." });
-    }
-
-    if (
-      id === Number(req.user.sub) &&
-      normalizeRole(existing.role) === ROLES.ADMIN &&
-      nextRole !== ROLES.ADMIN
-    ) {
-      return res.status(400).json({ message: "You cannot demote your own admin account." });
-    }
-
-    if (normalizeRole(existing.role) === ROLES.ADMIN && (nextRole !== ROLES.ADMIN || nextActive === false)) {
-      const adminCount = await query(
-        "SELECT COUNT(*)::int AS count FROM users WHERE role = 'admin' AND is_active = TRUE AND id <> $1",
+      const existingResult = await client.query(
+        "SELECT id, username, role, is_active, created_at, updated_at FROM users WHERE id = $1 FOR UPDATE",
         [id]
       );
-      if ((adminCount.rows[0]?.count || 0) < 1) {
-        return res.status(400).json({
-          message:
-            nextActive === false
-              ? "Cannot deactivate the last active admin."
-              : "Cannot demote the last active admin.",
-        });
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        const error = new Error("User not found.");
+        error.statusCode = 404;
+        throw error;
       }
-    }
 
-    const updateResult = await query(
-      `UPDATE users
-       SET role = $1,
-           is_active = $2,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3
-       RETURNING id, username, role, is_active, created_at, updated_at`,
-      [nextRole, nextActive, id]
-    );
+      const nextRole = parsed.data.role ?? normalizeRole(existing.role);
+      const nextActive =
+        parsed.data.isActive !== undefined ? parsed.data.isActive : existing.is_active !== false;
 
-    const before = mapUserRow(existing);
-    const after = mapUserRow(updateResult.rows[0]);
-    await insertAuditLog(null, {
-      assetId: null,
-      action: "user.update",
-      user: req.user,
-      before,
-      after,
+      if (id === Number(req.user.sub) && nextActive === false) {
+        const error = new Error("You cannot deactivate your own account.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (
+        id === Number(req.user.sub) &&
+        normalizeRole(existing.role) === ROLES.ADMIN &&
+        nextRole !== ROLES.ADMIN
+      ) {
+        const error = new Error("You cannot demote your own admin account.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (isActiveAdminRow(existing) && (nextRole !== ROLES.ADMIN || nextActive === false)) {
+        await ensureAnotherActiveAdmin(
+          client,
+          id,
+          nextActive === false
+            ? "Cannot deactivate the last active admin."
+            : "Cannot demote the last active admin."
+        );
+      }
+
+      const updateResult = await client.query(
+        `UPDATE users
+         SET role = $1,
+             is_active = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3
+         RETURNING id, username, role, is_active, created_at, updated_at`,
+        [nextRole, nextActive, id]
+      );
+
+      const before = mapUserRow(existing);
+      const updated = mapUserRow(updateResult.rows[0]);
+      await insertAuditLog(client, {
+        assetId: null,
+        action: "user.update",
+        user: req.user,
+        before,
+        after: updated,
+      });
+
+      return updated;
     });
 
     return res.json({ user: after });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
     console.error(error);
     return res.status(500).json({ message: "Failed to update user." });
   }
@@ -379,28 +394,26 @@ app.delete("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
   }
 
   try {
-    const existingResult = await query(
-      "SELECT id, username, role, is_active, created_at, updated_at FROM users WHERE id = $1",
-      [id]
-    );
-    const existing = existingResult.rows[0];
-    if (!existing) {
-      return res.status(404).json({ message: "User not found." });
-    }
+    await withTransaction(async (client) => {
+      await lockUserAdminSafety(client);
 
-    if (normalizeRole(existing.role) === ROLES.ADMIN && existing.is_active !== false) {
-      const adminCount = await query(
-        "SELECT COUNT(*)::int AS count FROM users WHERE role = 'admin' AND is_active = TRUE AND id <> $1",
+      const existingResult = await client.query(
+        "SELECT id, username, role, is_active, created_at, updated_at FROM users WHERE id = $1 FOR UPDATE",
         [id]
       );
-      if ((adminCount.rows[0]?.count || 0) < 1) {
-        return res.status(400).json({ message: "Cannot delete the last active admin." });
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        const error = new Error("User not found.");
+        error.statusCode = 404;
+        throw error;
       }
-    }
 
-    const before = mapUserRow(existing);
+      if (isActiveAdminRow(existing)) {
+        await ensureAnotherActiveAdmin(client, id, "Cannot delete the last active admin.");
+      }
 
-    await withTransaction(async (client) => {
+      const before = mapUserRow(existing);
+
       await client.query("UPDATE assets SET created_by = NULL WHERE created_by = $1", [id]);
       await client.query("UPDATE assets SET updated_by = NULL WHERE updated_by = $1", [id]);
       await client.query("UPDATE audit_logs SET actor_id = NULL WHERE actor_id = $1", [id]);
@@ -409,18 +422,20 @@ app.delete("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
         [id]
       );
       await client.query("DELETE FROM users WHERE id = $1", [id]);
-    });
-
-    await insertAuditLog(null, {
-      assetId: null,
-      action: "user.delete",
-      user: req.user,
-      before,
-      after: null,
+      await insertAuditLog(client, {
+        assetId: null,
+        action: "user.delete",
+        user: req.user,
+        before,
+        after: null,
+      });
     });
 
     return res.json({ message: "User deleted." });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
     console.error(error);
     return res.status(500).json({ message: "Failed to delete user." });
   }

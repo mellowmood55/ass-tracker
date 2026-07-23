@@ -11,6 +11,7 @@
 - Office LAN deploy scripts (`build-office.cmd`, `start-office.cmd`) and README guide for production hosting on one ICT PC.
 
 ### Changed
+- Serialized user role/status/delete admin-safety checks so concurrent admin mutations cannot remove every active admin account.
 - Asset No / Serial No (and shared text fields) are trimmed on validate before persistence.
 - Entry form surfaces duplicate conflicts with an admin “Open existing” action.
 - Production API binds to `0.0.0.0` by default so LAN devices can reach the host PC.
