@@ -11,6 +11,8 @@
 - Office LAN deploy scripts (`build-office.cmd`, `start-office.cmd`) and README guide for production hosting on one ICT PC.
 
 ### Changed
+- Import rows with blank status now receive the category default status so one blank cell cannot roll back an otherwise valid batch.
+- Default-locked category fields remain immutable even if a stale client submits them as unlocked.
 - Asset No / Serial No (and shared text fields) are trimmed on validate before persistence.
 - Entry form surfaces duplicate conflicts with an admin “Open existing” action.
 - Production API binds to `0.0.0.0` by default so LAN devices can reach the host PC.
