@@ -325,6 +325,28 @@ function fieldIsRequired(field, config) {
   return field.required === true;
 }
 
+function dedupeFieldsByName(fields) {
+  const byName = new Map();
+  for (const field of fields) {
+    if (!byName.has(field.name)) {
+      byName.set(field.name, field);
+    }
+  }
+  return [...byName.values()];
+}
+
+function forceLockedFields(config, lockedNames) {
+  return {
+    ...config,
+    sharedFields: (config.sharedFields || []).map((field) =>
+      lockedNames.has(field.name) ? { ...field, locked: true } : field
+    ),
+    detailFields: (config.detailFields || []).map((field) =>
+      lockedNames.has(field.name) ? { ...field, locked: true } : field
+    ),
+  };
+}
+
 function validateCategoryConfigPayload(code, incoming, existingConfig) {
   const parsed = categoryConfigSchema.safeParse(incoming);
   if (!parsed.success) {
@@ -332,8 +354,14 @@ function validateCategoryConfigPayload(code, incoming, existingConfig) {
   }
 
   const config = parsed.data;
+  const defaultConfig = getDefaultCategoryConfig(code);
   const defaults = existingConfig || getDefaultCategoryConfig(code);
-  const lockedFields = buildFieldLists(defaults).filter((field) => field.locked);
+  const immutableLockedFields = buildFieldLists(defaultConfig).filter((field) => field.locked);
+  const lockedFields = dedupeFieldsByName([
+    ...immutableLockedFields,
+    ...buildFieldLists(defaults).filter((field) => field.locked),
+  ]);
+  const immutableLockedNames = new Set(immutableLockedFields.map((field) => field.name));
   const incomingFields = buildFieldLists(config);
   const incomingByName = new Map(incomingFields.map((field) => [field.name, field]));
 
@@ -376,7 +404,7 @@ function validateCategoryConfigPayload(code, incoming, existingConfig) {
     return { valid: false, errors };
   }
 
-  return { valid: true, data: config };
+  return { valid: true, data: forceLockedFields(config, immutableLockedNames) };
 }
 
 async function refreshConfigCache() {

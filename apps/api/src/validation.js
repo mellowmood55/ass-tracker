@@ -1,5 +1,5 @@
 const { z } = require("zod");
-const { CATEGORY_CONFIG } = require("./catalog");
+const { CATEGORY_CONFIG, STATUS_BY_CATEGORY } = require("./catalog");
 const {
   getCachedCategoryConfig,
   buildFieldLists,
@@ -128,7 +128,7 @@ function validateAssetPayload(payload, options = {}) {
 
   if (isImport) {
     if (isMissing(data.status)) {
-      data.status = null;
+      data.status = (STATUS_BY_CATEGORY[data.category] || [])[0] || "Functional";
     }
 
     for (const field of config.detailFields || []) {
