@@ -511,6 +511,19 @@ async function insertAuditLog(clientOrNull, { assetId, action, user, before, aft
   );
 }
 
+function buildInvalidImportAttention(index, payload, errors) {
+  return {
+    row: index + 1,
+    reason: "invalid",
+    id: null,
+    assetNo: payload.assetNo || null,
+    serialNo: payload.serialNo || null,
+    blankFields: [],
+    duplicateFields: [],
+    validationErrors: errors,
+  };
+}
+
 async function getFilteredAssets(queryParams) {
   const { category, status, search } = queryParams;
   const where = [];
@@ -1011,7 +1024,9 @@ app.post("/api/assets/import", requireAuth, async (req, res) => {
 
         const result = validateAssetPayload(payload, { mode: "import", allowMissingLocation: true });
         if (!result.valid) {
-          throw new Error(`Row ${index + 1}: ${result.errors.join(" ")}`);
+          skippedCount += 1;
+          attention.push(buildInvalidImportAttention(index, payload, result.errors));
+          continue;
         }
 
         const asset = result.data;
