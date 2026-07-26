@@ -95,7 +95,16 @@ function applyStoredMapping(headers, categoryCode, autoMapped) {
 }
 
 function downloadAttentionCsv(needsAttention) {
-  const header = ["row", "reason", "assetNo", "serialNo", "blankFields", "duplicateFields", "existingId"];
+  const header = [
+    "row",
+    "reason",
+    "assetNo",
+    "serialNo",
+    "blankFields",
+    "duplicateFields",
+    "validationErrors",
+    "existingId",
+  ];
   const lines = [header.join(",")];
 
   for (const entry of needsAttention) {
@@ -106,6 +115,7 @@ function downloadAttentionCsv(needsAttention) {
       entry.serialNo ?? "",
       (entry.blankFields || []).join(";"),
       (entry.duplicateFields || []).join(";"),
+      (entry.validationErrors || []).join(";"),
       entry.existingId ?? "",
     ].map((value) => `"${String(value).replaceAll('"', '""')}"`);
     lines.push(row.join(","));
@@ -304,6 +314,7 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
         (entry) => entry.reason === "blank" || (entry.blankFields && entry.blankFields.length > 0)
       );
       const duplicates = needsAttention.filter((entry) => entry.reason === "duplicate");
+      const invalidRows = needsAttention.filter((entry) => entry.reason === "invalid");
 
       if (blanks.length > 0) {
         toast.warning(
@@ -317,6 +328,12 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
           `${duplicates.length} row(s) skipped as duplicates (Asset No / Serial No).`,
           { duration: 10000 }
         );
+      }
+
+      if (invalidRows.length > 0) {
+        toast.warning(`${invalidRows.length} row(s) skipped because required values were invalid.`, {
+          duration: 10000,
+        });
       }
 
       setImportResult({
@@ -599,7 +616,7 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
                 Imported <strong>{importResult.imported}</strong> asset(s)
                 {importResult.skipped > 0 ? (
                   <>
-                    ; skipped <strong>{importResult.skipped}</strong> duplicate row(s)
+                    ; skipped <strong>{importResult.skipped}</strong> row(s)
                   </>
                 ) : null}
                 .
@@ -643,6 +660,7 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
                           <TableCell className="text-xs text-muted-foreground">
                             {(entry.blankFields || []).join(", ") ||
                               (entry.duplicateFields || []).join(", ") ||
+                              (entry.validationErrors || []).join(" ") ||
                               "—"}
                           </TableCell>
                         </TableRow>
