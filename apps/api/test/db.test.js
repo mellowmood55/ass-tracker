@@ -42,6 +42,9 @@ function loadDbWithMockPool({ duplicateUsername } = {}) {
     if (request === "pg") {
       return { Pool: MockPool };
     }
+    if (request === "dotenv") {
+      return { config: () => ({ parsed: {} }) };
+    }
     if (request === "bcryptjs") {
       return { hash: async () => "hashed-password" };
     }

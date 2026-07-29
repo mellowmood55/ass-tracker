@@ -14,7 +14,7 @@
 - `/CHANGELOG.md` - Unreleased change log.
 
 ## 3. Recently Implemented (Log)
-- **[2026-07-29]:** Added database-enforced case-insensitive username uniqueness in `apps/api/src/db.js`, including startup duplicate detection, case-insensitive default-admin lookup/reset, API bootstrap tests in `apps/api/test/db.test.js`, and updated the API test script.
+- **[2026-07-29]:** Added database-enforced case-insensitive username uniqueness in `apps/api/src/db.js`, including startup duplicate detection, case-insensitive default-admin lookup/reset, dependency-free API bootstrap tests in `apps/api/test/db.test.js`, and updated the API test script.
 
 ## 4. Current Working State & Pending Tasks
 - [x] Fixed username case-variant race that could create ambiguous login matches.
