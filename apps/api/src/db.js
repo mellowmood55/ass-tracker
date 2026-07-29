@@ -111,12 +111,31 @@ async function initDb() {
     WHERE lower(trim(role)) NOT IN ('admin', 'operator')
   `);
 
+  const duplicateUsernameResult = await pool.query(`
+    SELECT lower(username) AS normalized_username
+    FROM users
+    GROUP BY lower(username)
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  `);
+  const duplicateUsername = duplicateUsernameResult.rows[0];
+  if (duplicateUsername) {
+    throw new Error(
+      `Cannot initialize users table: multiple usernames differ only by case (${duplicateUsername.normalized_username}). Resolve duplicate accounts before starting the API.`
+    );
+  }
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower_unique
+    ON users (lower(username));
+  `);
+
   const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD || "admin123";
   const resetDefaultAdmin =
     String(process.env.RESET_DEFAULT_ADMIN_PASSWORD || "").toLowerCase() === "true";
 
   const existingAdmin = await pool.query(
-    "SELECT id FROM users WHERE username = $1",
+    "SELECT id FROM users WHERE lower(username) = lower($1)",
     ["admin"]
   );
 
@@ -129,7 +148,7 @@ async function initDb() {
   } else if (resetDefaultAdmin) {
     const hash = await bcrypt.hash(defaultAdminPassword, 10);
     await pool.query(
-      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE username = $2",
+      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE lower(username) = lower($2)",
       [hash, "admin"]
     );
   }
