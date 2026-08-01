@@ -20,5 +20,6 @@
 ## 4. Current Working State & Pending Tasks
 - [x] Confirmed prior remembered bug PRs #1-#8, #10, and #13-#17 remain open and should not be duplicated.
 - [x] Implemented critical security fix for stale bearer tokens after password changes/resets.
-- [ ] Run API tests and web build/lint verification.
-- [ ] Commit, push, open PR, and record the new bug in automation memory after validation.
+- [x] Verification: `npm test --prefix apps/api` passed; `npm run build --prefix apps/web` passed.
+- [x] Verification note: `npm run lint --prefix apps/web` currently fails on pre-existing lint violations in AssetTable, DynamicField, Sidebar, DataRefreshContext, useCategoryFieldSettings, importMapping, AssetsPage, and UsersSettingsPage.
+- [ ] Open PR and record the new bug in automation memory after validation.
