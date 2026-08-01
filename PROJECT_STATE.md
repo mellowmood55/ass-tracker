@@ -22,4 +22,4 @@
 - [x] Implemented critical security fix for stale bearer tokens after password changes/resets.
 - [x] Verification: `npm test --prefix apps/api` passed; `npm run build --prefix apps/web` passed.
 - [x] Verification note: `npm run lint --prefix apps/web` currently fails on pre-existing lint violations in AssetTable, DynamicField, Sidebar, DataRefreshContext, useCategoryFieldSettings, importMapping, AssetsPage, and UsersSettingsPage.
-- [ ] Open PR and record the new bug in automation memory after validation.
+- [x] Opened PR #18 and recorded the password session invalidation bug in automation memory.
