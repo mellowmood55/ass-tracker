@@ -78,7 +78,9 @@ app.post("/api/auth/login", async (req, res) => {
 
   try {
     const result = await query(
-      "SELECT id, username, password_hash, role, is_active FROM users WHERE lower(username) = lower($1)",
+      `SELECT id, username, password_hash, role, is_active, session_version
+       FROM users
+       WHERE lower(username) = lower($1)`,
       [username]
     );
     const user = result.rows[0];
@@ -128,7 +130,7 @@ app.post("/api/auth/change-password", requireAuth, async (req, res) => {
 
   try {
     const result = await query(
-      "SELECT id, username, password_hash FROM users WHERE id = $1",
+      "SELECT id, username, password_hash, role, session_version FROM users WHERE id = $1",
       [req.user.sub]
     );
     const user = result.rows[0];
@@ -141,20 +143,38 @@ app.post("/api/auth/change-password", requireAuth, async (req, res) => {
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    await query(
-      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-      [hash, user.id]
-    );
+    const updatedUser = await withTransaction(async (client) => {
+      const updateResult = await client.query(
+        `UPDATE users
+         SET password_hash = $1,
+             session_version = session_version + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, username, role, session_version`,
+        [hash, user.id]
+      );
+      const updated = updateResult.rows[0];
 
-    await insertAuditLog(null, {
-      assetId: null,
-      action: "user.password_change",
-      user: req.user,
-      before: null,
-      after: { userId: user.id, username: user.username },
+      await insertAuditLog(client, {
+        assetId: null,
+        action: "user.password_change",
+        user: req.user,
+        before: null,
+        after: { userId: user.id, username: user.username },
+      });
+
+      return updated;
     });
 
-    return res.json({ message: "Password updated." });
+    return res.json({
+      message: "Password updated.",
+      token: signToken(updatedUser),
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        role: normalizeRole(updatedUser.role),
+      },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Failed to change password." });
@@ -348,20 +368,40 @@ app.post("/api/users/:id/reset-password", requireAuth, requireAdmin, async (req,
     }
 
     const hash = await bcrypt.hash(parsed.data.newPassword, 10);
-    await query(
-      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-      [hash, id]
-    );
+    const updatedUser = await withTransaction(async (client) => {
+      const updateResult = await client.query(
+        `UPDATE users
+         SET password_hash = $1,
+             session_version = session_version + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, username, role, session_version`,
+        [hash, id]
+      );
+      const updated = updateResult.rows[0];
 
-    await insertAuditLog(null, {
-      assetId: null,
-      action: "user.password_reset",
-      user: req.user,
-      before: null,
-      after: { userId: existing.id, username: existing.username },
+      await insertAuditLog(client, {
+        assetId: null,
+        action: "user.password_reset",
+        user: req.user,
+        before: null,
+        after: { userId: existing.id, username: existing.username },
+      });
+
+      return updated;
     });
 
-    return res.json({ message: "Password reset." });
+    const response = { message: "Password reset." };
+    if (updatedUser.id === Number(req.user.sub)) {
+      response.token = signToken(updatedUser);
+      response.user = {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        role: normalizeRole(updatedUser.role),
+      };
+    }
+
+    return res.json(response);
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Failed to reset password." });
