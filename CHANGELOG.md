@@ -11,6 +11,7 @@
 - Office LAN deploy scripts (`build-office.cmd`, `start-office.cmd`) and README guide for production hosting on one ICT PC.
 
 ### Changed
+- Password changes and admin resets now rotate a per-user session version so older bearer tokens are rejected immediately after credential updates.
 - Asset No / Serial No (and shared text fields) are trimmed on validate before persistence.
 - Entry form surfaces duplicate conflicts with an admin “Open existing” action.
 - Production API binds to `0.0.0.0` by default so LAN devices can reach the host PC.

@@ -40,7 +40,7 @@ function PasswordField({ id, label, value, onChange, autoComplete, show, onToggl
 }
 
 export function AccountSettingsPage() {
-  const { auth } = useAuth();
+  const { auth, setAuth } = useAuth();
   const [form, setForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -73,7 +73,7 @@ export function AccountSettingsPage() {
 
     setLoading(true);
     try {
-      await api(
+      const data = await api(
         "/api/auth/change-password",
         {
           method: "POST",
@@ -84,6 +84,9 @@ export function AccountSettingsPage() {
         },
         auth.token
       );
+      if (data.token && data.user) {
+        setAuth({ token: data.token, user: data.user });
+      }
       toast.success("Password updated.");
       setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
     } catch (err) {

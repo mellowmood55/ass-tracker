@@ -77,7 +77,7 @@ function PasswordInput({ id, label, value, onChange, autoComplete }) {
 }
 
 export function UsersSettingsPage() {
-  const { auth } = useAuth();
+  const { auth, setAuth } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -188,11 +188,14 @@ export function UsersSettingsPage() {
 
     setSaving(true);
     try {
-      await api(
+      const data = await api(
         `/api/users/${resetTarget.id}/reset-password`,
         { method: "POST", body: JSON.stringify({ newPassword: resetPassword }) },
         auth.token
       );
+      if (data.token && data.user) {
+        setAuth({ token: data.token, user: data.user });
+      }
       toast.success(`Password reset for ${resetTarget.username}.`);
       setResetTarget(null);
       setResetPassword("");
