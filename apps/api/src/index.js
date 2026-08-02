@@ -83,12 +83,9 @@ app.post("/api/auth/login", async (req, res) => {
     );
     const user = result.rows[0];
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    const passwordMatches = user ? await bcrypt.compare(password, user.password_hash) : false;
+    if (!user || !passwordMatches || user.is_active === false) {
       return res.status(401).json({ message: "Invalid username or password." });
-    }
-
-    if (user.is_active === false) {
-      return res.status(403).json({ message: "This account is deactivated. Contact an admin." });
     }
 
     const token = signToken(user);
@@ -1073,9 +1070,6 @@ app.post("/api/assets/import", requireAuth, async (req, res) => {
           continue;
         }
 
-        if (assetNo) seenAssetNos.add(assetNo);
-        if (serialNo) seenSerialNos.add(serialNo);
-
         const savepoint = `sp_import_${index}`;
         try {
           await client.query(`SAVEPOINT ${savepoint}`);
@@ -1117,6 +1111,8 @@ app.post("/api/assets/import", requireAuth, async (req, res) => {
           });
           await client.query(`RELEASE SAVEPOINT ${savepoint}`);
           createdRows.push(mapped);
+          if (assetNo) seenAssetNos.add(assetNo);
+          if (serialNo) seenSerialNos.add(serialNo);
 
           if (blankFields.length > 0) {
             attention.push({
