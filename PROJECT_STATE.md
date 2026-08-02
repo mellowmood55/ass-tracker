@@ -22,4 +22,4 @@
 - [x] Fixed inactive-account login response to avoid confirming correct passwords.
 - [x] Fixed import duplicate tracking so only committed rows reserve Asset No / Serial No values.
 - [x] Ran available validation (`node --check apps/api/src/index.js`, `npm test --prefix apps/api`, `npm run build`).
-- [ ] Open a PR for review.
+- [x] Opened PR https://github.com/mellowmood55/ass-tracker/pull/19 for review.
