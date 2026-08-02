@@ -14,6 +14,8 @@
 - Asset No / Serial No (and shared text fields) are trimmed on validate before persistence.
 - Entry form surfaces duplicate conflicts with an admin “Open existing” action.
 - Production API binds to `0.0.0.0` by default so LAN devices can reach the host PC.
+- Login returns the same invalid-credential response for inactive accounts to avoid confirming passwords.
+- Import duplicate tracking now records only successfully inserted rows, so failed duplicate rows cannot skip later valid rows.
 - Reorganized monorepo into `apps/api` (Express + Neon) and `apps/web` (React + Vite); root scripts and Render build paths updated accordingly.
 - Documented the full local run procedure (Neon `.env`, install, `npm run dev`, troubleshooting) in the README.
 - Replaced local SQLite (`better-sqlite3`) with Neon Postgres via `pg` and `DATABASE_URL`.
