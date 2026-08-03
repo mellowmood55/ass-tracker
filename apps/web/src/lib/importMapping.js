@@ -389,6 +389,57 @@ const DEVICE_TYPE_ALIASES = {
   portable: "Laptop",
 };
 
+const HARDWARE_STATUS_OPTIONS = ["Functional", "Non-funct", "Under Repair"];
+const SOFTWARE_STATUS_OPTIONS = ["Active", "Deprecated", "Inactive"];
+
+const HARDWARE_STATUS_ALIASES = {
+  working: "Functional",
+  works: "Functional",
+  functional: "Functional",
+  ok: "Functional",
+  good: "Functional",
+  fine: "Functional",
+  operational: "Functional",
+  active: "Functional",
+  "in use": "Functional",
+  "non funct": "Non-funct",
+  "non-funct": "Non-funct",
+  nonfunct: "Non-funct",
+  "non functional": "Non-funct",
+  nonfunctional: "Non-funct",
+  "non-functional": "Non-funct",
+  "not functional": "Non-funct",
+  broken: "Non-funct",
+  faulty: "Non-funct",
+  dead: "Non-funct",
+  failed: "Non-funct",
+  "not working": "Non-funct",
+  "out of order": "Non-funct",
+  "under repair": "Under Repair",
+  underrepair: "Under Repair",
+  repairing: "Under Repair",
+  repair: "Under Repair",
+  "in repair": "Under Repair",
+  servicing: "Under Repair",
+};
+
+const SOFTWARE_STATUS_ALIASES = {
+  active: "Active",
+  enabled: "Active",
+  "in use": "Active",
+  running: "Active",
+  live: "Active",
+  deprecated: "Deprecated",
+  obsolete: "Deprecated",
+  legacy: "Deprecated",
+  retired: "Deprecated",
+  inactive: "Inactive",
+  disabled: "Inactive",
+  off: "Inactive",
+  unused: "Inactive",
+  stopped: "Inactive",
+};
+
 function matchCanonicalOption(raw, options) {
   if (raw === null || raw === undefined) return null;
   const trimmed = String(raw).trim();
@@ -444,7 +495,12 @@ export function normalizeImportFieldValue(fieldName, rawValue, categoryOrCode) {
 
   if (fieldName === "status") {
     if (rawValue === null || rawValue === undefined) return rawValue;
-    return String(rawValue).trim();
+    const trimmed = String(rawValue).trim();
+    if (!trimmed) return trimmed;
+    const isSoftware = categoryCode === "software";
+    const options = isSoftware ? SOFTWARE_STATUS_OPTIONS : HARDWARE_STATUS_OPTIONS;
+    const aliases = isSoftware ? SOFTWARE_STATUS_ALIASES : HARDWARE_STATUS_ALIASES;
+    return normalizeFromAliasMap(trimmed, options, aliases);
   }
 
   if (field?.type === "boolean") {

@@ -14,6 +14,7 @@ import {
 import { PAGE_SIZE } from "@/lib/constants";
 import { canEditAssets } from "@/lib/roles";
 import { DeleteConfirmDialog } from "@/components/assets/DeleteConfirmDialog";
+import { BulkEditDialog } from "@/components/assets/BulkEditDialog";
 import { AuditLogSheet } from "@/components/audit/AuditLogSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,12 +42,14 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [auditAsset, setAuditAsset] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const canEdit = canEditAssets(auth.user);
 
-  const columns = useMemo(
-    () => buildAssetColumnsFromCategory(category),
-    [category]
-  );
+  const columns = useMemo(() => buildAssetColumnsFromCategory(category), [category]);
 
   const filteredAssets = useMemo(
     () => assets.filter((asset) => matchesRiskFilter(asset, riskFilter)),
@@ -55,10 +58,18 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
 
   useEffect(() => {
     setPage(1);
+    setSelectedIds(new Set());
   }, [riskFilter, category.code, assets.length]);
+
+  useEffect(() => {
+    if (!selectMode) setSelectedIds(new Set());
+  }, [selectMode]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAssets.length / PAGE_SIZE));
   const pageAssets = filteredAssets.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const selectedCount = selectedIds.size;
+  const allPageSelected =
+    pageAssets.length > 0 && pageAssets.every((asset) => selectedIds.has(asset.id));
 
   function buildEditPath(assetId) {
     const params = new URLSearchParams({ edit: String(assetId) });
@@ -66,6 +77,27 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
       params.set("returnTo", returnTo);
     }
     return `/entry?${params.toString()}`;
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllPage() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allPageSelected) {
+        for (const asset of pageAssets) next.delete(asset.id);
+      } else {
+        for (const asset of pageAssets) next.add(asset.id);
+      }
+      return next;
+    });
   }
 
   async function handleDelete() {
@@ -81,6 +113,28 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
       toast.error(err.message);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedCount === 0) return;
+    setBulkDeleting(true);
+    try {
+      const result = await api(
+        "/api/assets/bulk-delete",
+        { method: "POST", body: JSON.stringify({ ids: [...selectedIds] }) },
+        auth.token
+      );
+      toast.success(`Deleted ${result.deleted} asset(s).`);
+      setBulkDeleteOpen(false);
+      setSelectMode(false);
+      setSelectedIds(new Set());
+      bump("assets-bulk-deleted");
+      onDeleted?.();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -126,6 +180,42 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
     </div>
   );
 
+  const toolbar = canEdit && (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant={selectMode ? "default" : "outline"}
+        size="sm"
+        onClick={() => setSelectMode((current) => !current)}
+      >
+        {selectMode ? "Exit select" : "Select"}
+      </Button>
+      {selectMode && (
+        <>
+          <Badge variant="secondary">{selectedCount} selected</Badge>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={selectedCount < 2}
+            onClick={() => setBulkEditOpen(true)}
+          >
+            Bulk edit
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={selectedCount === 0}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            Delete selected
+          </Button>
+        </>
+      )}
+    </div>
+  );
+
   const dialogs = (
     <>
       <DeleteConfirmDialog
@@ -134,6 +224,26 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
         assetLabel={deleteTarget ? `asset #${deleteTarget.id}` : "this asset"}
         onConfirm={handleDelete}
         deleting={deleting}
+      />
+      <DeleteConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        assetLabel={`${selectedCount} selected asset(s)`}
+        onConfirm={handleBulkDelete}
+        deleting={bulkDeleting}
+      />
+      <BulkEditDialog
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        category={category}
+        selectedIds={[...selectedIds]}
+        onApplied={() => {
+          setBulkEditOpen(false);
+          setSelectMode(false);
+          setSelectedIds(new Set());
+          bump("assets-bulk-edited");
+          onDeleted?.();
+        }}
       />
       <AuditLogSheet
         asset={auditAsset}
@@ -145,11 +255,22 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
 
   return (
     <>
+      {toolbar}
       <div className="hidden md:block">
         <div className="overflow-x-auto rounded-xl border border-border/70">
           <Table>
             <TableHeader>
               <TableRow>
+                {selectMode && (
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on page"
+                      checked={allPageSelected}
+                      onChange={toggleSelectAllPage}
+                    />
+                  </TableHead>
+                )}
                 {columns.map((column) => (
                   <TableHead key={column.label}>{column.label}</TableHead>
                 ))}
@@ -162,6 +283,16 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
                 const riskLabel = getRiskLabel(asset);
                 return (
                   <TableRow key={asset.id} className="transition-colors hover:bg-accent/40">
+                    {selectMode && (
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select asset ${asset.id}`}
+                          checked={selectedIds.has(asset.id)}
+                          onChange={() => toggleSelect(asset.id)}
+                        />
+                      </TableCell>
+                    )}
                     {columns.map((column) => (
                       <TableCell key={`${asset.id}-${column.label}`}>{column.value(asset)}</TableCell>
                     ))}
@@ -223,6 +354,16 @@ export function AssetTable({ category, assets, loading, onDeleted, riskFilter, r
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
+                  {selectMode && (
+                    <label className="mb-2 flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(asset.id)}
+                        onChange={() => toggleSelect(asset.id)}
+                      />
+                      Select
+                    </label>
+                  )}
                   <p className="truncate text-base font-semibold text-foreground">
                     {formatCardIdentity(asset)}
                   </p>

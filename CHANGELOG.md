@@ -2,7 +2,31 @@
 
 ## [Unreleased]
 
+### Fixed
+- Import no longer fails the whole job when a row has a blank Status (`assets.status` is NOT NULL); blank status is stored as empty and flagged for attention, and other rows continue.
+- Import normalizes mismatched status values (e.g. `not working` → `Non-funct`) instead of rejecting fixed-list mismatches; select mismatches soft-clear on import.
+
 ### Added
+- Edit Category Fields preview: click a field header (e.g. Asset No) to jump to that field’s edit form.
+- Move Asset tab: relocate assets by location / office / department / assigned to; save updates the asset list via cascade rules.
+- Assets condition filters: cascading Category → Field → Value dropdowns over the union of all fields in all categories (e.g. Office = HR); boolean fields use Yes/No.
+- Edit Category Fields WhatsApp-style floating toolkit (expand on click, icons only with aria-labels, edit toggle on toolkit).
+- Maintenance fixed left asset panel: moving assets, location, assigned to, asset number, field number, plus model/category/office/status.
+- Import progress jobs with Importing / Completed / Failed status, progress percent, and duplicate auto-fill of missing fields (autofill takes precedence over skip).
+- Assets select mode: bulk delete and bulk edit of common field values (Asset No / Serial No stay unique).
+- Computer fields: Assigned room, Department, and RAM; department/location moves clear assignees that would span two departments.
+- Maintenance tab with quarterly Q1–Q4 checklists, “maintenance managed” status, PDF reports, and Settings checklist editor.
+- Settings → Add category for dynamic codes (e.g. VoIP / IP phones).
+
+### Changed
+- Maintenance change-request PDF: Hardware Problem and Software Problem sections always appear (blank when no issues), ensuring consistent layout regardless of data.
+- Maintenance tab: clicking a machine row opens the form directly (row click = open form); Form button preserved as fallback. Machine list scrolls independently (max-height container like Move Assets) instead of scrolling the whole page. Keyboard accessible with Enter/Space.
+- Maintenance tab: Quarterly and Monthly are separate views with switch buttons (not stacked); shared search filters the active list; checklist settings use the same cadence switch.
+- Maintenance reworked into **Quarterly** and **Monthly** sections (Q1–Q4 / M1–M12); status is **complete** (migrated from `managed`); forms capture hardware/software issues, solution, and Done by; PDF is a PAD/IT change-request form (checklists stay in-app only).
+- Settings → Maintenance checklists: Quarterly | Monthly × Computer | Printer templates.
+- Computer Microsoft Office group: removed locked **Office Installed**; kept **Office Type** and **Office Status** only (forced via config patch for existing DBs).
+
+### Previously added
 - Operator vs admin roles: operators can create/import/read; only admins edit/delete assets and manage settings.
 - Settings hub: Account (change password), Appearance (light/dark/system), Users (admin registration), Category Fields.
 - Dark theme CSS tokens matching the warm parchment + forest-green light brand.

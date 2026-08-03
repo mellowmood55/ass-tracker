@@ -10,3 +10,13 @@ apps/api/dist/
 *.db
 *.db-shm
 *.db-wal
+
+# Accidental .NET scratch / build outputs (not part of this Node monorepo)
+/src/
+/tests/
+**/bin/
+**/obj/
+*.csproj
+*.sln
+*.nuget.*
+project.assets.json

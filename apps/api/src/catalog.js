@@ -92,6 +92,8 @@ const HARDWARE_STATUS_ALIASES = {
   nonfunct: "Non-funct",
   "non functional": "Non-funct",
   nonfunctional: "Non-funct",
+  "non-functional": "Non-funct",
+  "not functional": "Non-funct",
   broken: "Non-funct",
   faulty: "Non-funct",
   dead: "Non-funct",
@@ -242,7 +244,6 @@ const CATEGORY_CONFIG = {
     detailRequired: [
       "deviceType",
       "osInstalled",
-      "officeInstalled",
       "wirelessCapability",
     ],
     sharedFields: [
@@ -273,7 +274,6 @@ const CATEGORY_CONFIG = {
         type: "text",
         required: true,
       },
-      { name: "officeInstalled", label: "Office Installed", type: "boolean", required: true },
       {
         name: "antivirusInstalled",
         label: "Antivirus Installed",
@@ -296,6 +296,24 @@ const CATEGORY_CONFIG = {
         name: "remainingSubscriptionDays",
         label: "Remaining Subscription Days",
         type: "number",
+        required: false,
+      },
+      {
+        name: "ram",
+        label: "RAM",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "assignedRoom",
+        label: "Assigned room",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "department",
+        label: "Department",
+        type: "text",
         required: false,
       },
     ],

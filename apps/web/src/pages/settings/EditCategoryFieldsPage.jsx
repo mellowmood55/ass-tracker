@@ -5,23 +5,38 @@ import { FieldLayoutPreview } from "@/components/settings/FieldLayoutPreview";
 import { FloatingFieldActions } from "@/components/settings/FloatingFieldActions";
 import { useCategoryFieldSettings } from "@/hooks/useCategoryFieldSettings";
 import { useDataRefresh } from "@/context/DataRefreshContext";
+import { useAuth } from "@/context/AuthContext";
+import { api } from "@/lib/api";
 import { cloneConfig, getAllFieldNames, labelToFieldName } from "@/lib/fieldConfig";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export function EditCategoryFieldsPage() {
-  const { categories, loading, error, saveCategory } = useCategoryFieldSettings();
+  const { auth } = useAuth();
+  const { categories, loading, error, saveCategory, reload } = useCategoryFieldSettings();
   const { bump } = useDataRefresh();
   const [selectedCode, setSelectedCode] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [draftOverrides, setDraftOverrides] = useState({});
   const [saving, setSaving] = useState(false);
   const [scrollToFieldName, setScrollToFieldName] = useState(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newCode, setNewCode] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const effectiveCode = selectedCode || categories[0]?.code || "";
   const activeCategory = useMemo(
@@ -101,6 +116,35 @@ export function EditCategoryFieldsPage() {
     }
   }
 
+  async function handleAddCategory() {
+    setAdding(true);
+    try {
+      const data = await api(
+        "/api/settings/categories",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            label: newLabel.trim(),
+            code: newCode.trim() || undefined,
+          }),
+        },
+        auth.token
+      );
+      toast.success(`Added category ${data.category.label}.`);
+      setAddOpen(false);
+      setNewLabel("");
+      setNewCode("");
+      await reload();
+      bump("category-added");
+      setSelectedCode(data.category.code);
+      setEditMode(true);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setAdding(false);
+    }
+  }
+
   if (loading && categories.length === 0) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -113,17 +157,15 @@ export function EditCategoryFieldsPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div id="category-fields-actions" className="sticky top-0 z-20 rounded-xl border bg-card/95 p-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Switch id="edit-fields" checked={editMode} onCheckedChange={setEditMode} />
-            <Label htmlFor="edit-fields">Edit fields</Label>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            {editMode ? "Editing category fields" : "Viewing category fields"}
+          </p>
           <div className="ml-auto flex gap-2">
+            <Button type="button" variant="outline" onClick={() => setAddOpen(true)}>
+              Add category
+            </Button>
             <Button type="button" variant="outline" onClick={resetDraft} disabled={!draftConfig}>
               Reset
-            </Button>
-            <Button type="button" onClick={handleSave} disabled={!draftConfig || saving}>
-              {saving && <Spinner className="mr-2" />}
-              Save changes
             </Button>
           </div>
         </div>
@@ -135,7 +177,14 @@ export function EditCategoryFieldsPage() {
       </div>
 
       {draftConfig && activeCategory && (
-        <FieldLayoutPreview config={draftConfig} categoryLabel={activeCategory.label} />
+        <FieldLayoutPreview
+          config={draftConfig}
+          categoryLabel={activeCategory.label}
+          onFieldClick={(name) => {
+            setEditMode(true);
+            setScrollToFieldName(name);
+          }}
+        />
       )}
 
       <div className="md:hidden">
@@ -191,7 +240,9 @@ export function EditCategoryFieldsPage() {
       </div>
 
       <FloatingFieldActions
-        disabled={!editMode || !draftConfig}
+        editMode={editMode}
+        onEditModeChange={setEditMode}
+        disabled={!draftConfig}
         saving={saving}
         onSave={handleSave}
         onAddField={() => addField("detail")}
@@ -205,6 +256,46 @@ export function EditCategoryFieldsPage() {
           }
         }}
       />
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add category</DialogTitle>
+            <DialogDescription>
+              Create a category such as VoIP / IP phones, then edit its fields like the existing ones.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="new-category-label">Label</Label>
+              <Input
+                id="new-category-label"
+                value={newLabel}
+                placeholder="e.g. VoIP / IP phones"
+                onChange={(event) => setNewLabel(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-category-code">Code (optional)</Label>
+              <Input
+                id="new-category-code"
+                value={newCode}
+                placeholder="e.g. voip"
+                onChange={(event) => setNewCode(event.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleAddCategory} disabled={adding || !newLabel.trim()}>
+              {adding && <Spinner className="mr-2" />}
+              Add category
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

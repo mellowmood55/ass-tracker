@@ -18,20 +18,27 @@ const {
   normalizeRole,
   ROLES,
 } = require("./auth");
-const { CATEGORY_CODES, CATEGORY_CONFIG, STATUS_BY_CATEGORY } = require("./catalog");
+const { CATEGORY_CODES, CATEGORY_CONFIG } = require("./catalog");
 const {
   loadAllCategoryConfigsForApi,
   loadSettingsPayload,
   saveCategoryConfig,
+  createCategory,
   getCachedCategoryConfig,
-  normalizeImportRowWithConfig,
+  getAllCategoryMeta,
   buildReportRowFromConfig,
 } = require("./categoryConfig");
-const { validateAssetPayload, collectBlankRequiredFields } = require("./validation");
+const { validateAssetPayload } = require("./validation");
+const { resolveUniqueConflict } = require("./duplicateConflict");
 const {
-  resolveUniqueConflict,
-  duplicateFieldsFromConflictBody,
-} = require("./duplicateConflict");
+  createImportJob,
+  getImportJob,
+  getLatestImportJob,
+  processImportJob,
+} = require("./importJobs");
+const { listFilterableFields } = require("./assetFilters");
+const { applyAssignmentCascade, findCommonFieldValues } = require("./assetCascade");
+const maintenance = require("./maintenance");
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -460,6 +467,32 @@ app.put("/api/settings/category-fields/:code", requireAuth, requireAdmin, async 
   }
 });
 
+app.post("/api/settings/categories", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await createCategory(
+      { code: req.body?.code, label: req.body?.label },
+      req.user.sub
+    );
+    if (!result.ok) {
+      return res.status(result.status).json({ message: result.message });
+    }
+    return res.status(201).json({ category: result.category });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to create category." });
+  }
+});
+
+app.get("/api/assets/filter-fields", requireAuth, async (req, res) => {
+  try {
+    const category = typeof req.query.category === "string" ? req.query.category : null;
+    res.json({ fields: listFilterableFields(category) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to load filter fields." });
+  }
+});
+
 function parseJsonField(value) {
   if (value == null) {
     return null;
@@ -529,9 +562,19 @@ async function getFilteredAssets(queryParams) {
   if (search) {
     const pattern = `%${search}%`;
     const start = params.length + 1;
-    params.push(pattern, pattern, pattern, pattern, pattern);
+    params.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern);
     where.push(
-      `(asset_no LIKE $${start} OR serial_no LIKE $${start + 1} OR model LIKE $${start + 2} OR office LIKE $${start + 3} OR location LIKE $${start + 4})`
+      `(asset_no ILIKE $${start}
+        OR serial_no ILIKE $${start + 1}
+        OR model ILIKE $${start + 2}
+        OR office ILIKE $${start + 3}
+        OR location ILIKE $${start + 4}
+        OR status ILIKE $${start + 5}
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_each_text(details_json) AS detail_entry
+          WHERE detail_entry.value ILIKE $${start + 6}
+        ))`
     );
   }
 
@@ -613,7 +656,9 @@ function buildSmartInsights(assets) {
   );
 
   const assetsByCategory = assets.reduce((accumulator, asset) => {
-    const label = CATEGORY_CONFIG[asset.category]?.label || asset.category;
+    const meta = getAllCategoryMeta();
+    const label =
+      meta[asset.category]?.label || CATEGORY_CONFIG[asset.category]?.label || asset.category;
     accumulator[label] = (accumulator[label] || 0) + 1;
     return accumulator;
   }, {});
@@ -653,7 +698,7 @@ function buildSmartInsights(assets) {
 
       return {
         id: asset.id,
-        category: CATEGORY_CONFIG[asset.category]?.label || asset.category,
+        category: getAllCategoryMeta()[asset.category]?.label || CATEGORY_CONFIG[asset.category]?.label || asset.category,
         model: asset.model,
         assetNo: asset.assetNo,
         serialNo: asset.serialNo,
@@ -723,7 +768,8 @@ app.get("/api/reports/assets.xlsx", requireAuth, async (req, res) => {
   try {
     const assets = await getFilteredAssets(req.query);
     const workbook = new ExcelJS.Workbook();
-    const categories = Object.values(CATEGORY_CODES);
+    const meta = getAllCategoryMeta();
+    const categories = Object.keys(meta).length > 0 ? Object.keys(meta) : Object.values(CATEGORY_CODES);
 
     categories.forEach((categoryCode) => {
       const categoryAssets = getCategoryAssets(assets, categoryCode);
@@ -731,7 +777,9 @@ app.get("/api/reports/assets.xlsx", requireAuth, async (req, res) => {
         return;
       }
 
-      const worksheet = workbook.addWorksheet(CATEGORY_CONFIG[categoryCode]?.label || categoryCode);
+      const worksheet = workbook.addWorksheet(
+        meta[categoryCode]?.label || CATEGORY_CONFIG[categoryCode]?.label || categoryCode
+      );
       const sampleRow = buildReportColumns(categoryAssets[0]);
       const columns = Object.keys(sampleRow).map((key) => ({ header: key, key, width: 20 }));
 
@@ -891,7 +939,14 @@ app.put("/api/assets/:id", requireAuth, requireAdminForEdit, async (req, res) =>
       return res.status(400).json({ message: "Validation failed.", errors: result.errors });
     }
 
+    const before = mapAssetRow(existing);
     asset = result.data;
+    const cascade = applyAssignmentCascade(before, asset);
+    asset = {
+      ...asset,
+      office: cascade.office,
+      details: cascade.details,
+    };
 
     const updateResult = await query(
       `UPDATE assets
@@ -921,7 +976,6 @@ app.put("/api/assets/:id", requireAuth, requireAdminForEdit, async (req, res) =>
       ]
     );
 
-    const before = mapAssetRow(existing);
     const after = mapAssetRow(updateResult.rows[0]);
     await insertAuditLog(null, {
       assetId: id,
@@ -931,7 +985,7 @@ app.put("/api/assets/:id", requireAuth, requireAdminForEdit, async (req, res) =>
       after,
     });
 
-    return res.json({ asset: after });
+    return res.json({ asset: after, warnings: cascade.warnings });
   } catch (error) {
     if (isUniqueViolation(error)) {
       const body = await resolveUniqueConflict(error, asset, { excludeId: id });
@@ -939,6 +993,145 @@ app.put("/api/assets/:id", requireAuth, requireAdminForEdit, async (req, res) =>
     }
     console.error(error);
     return res.status(500).json({ message: "Failed to update asset." });
+  }
+});
+
+app.post("/api/assets/bulk-delete", requireAuth, requireAdminForEdit, async (req, res) => {
+  const schema = z.object({ ids: z.array(z.number().int().positive()).min(1) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Provide at least one asset id." });
+  }
+
+  try {
+    const deleted = [];
+    await withTransaction(async (client) => {
+      for (const id of parsed.data.ids) {
+        const existingResult = await client.query("SELECT * FROM assets WHERE id = $1", [id]);
+        const existing = existingResult.rows[0];
+        if (!existing) continue;
+        await client.query("DELETE FROM assets WHERE id = $1", [id]);
+        await insertAuditLog(client, {
+          assetId: id,
+          action: "delete",
+          user: req.user,
+          before: mapAssetRow(existing),
+          after: null,
+        });
+        deleted.push(id);
+      }
+    });
+    return res.json({ deleted: deleted.length, ids: deleted });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to bulk delete assets." });
+  }
+});
+
+app.post("/api/assets/bulk-common", requireAuth, requireAdminForEdit, async (req, res) => {
+  const schema = z.object({ ids: z.array(z.number().int().positive()).min(2) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Select at least two assets." });
+  }
+
+  try {
+    const result = await query(
+      `SELECT * FROM assets WHERE id = ANY($1::int[])`,
+      [parsed.data.ids]
+    );
+    if (result.rows.length < 2) {
+      return res.status(400).json({ message: "Select at least two existing assets." });
+    }
+    const assets = result.rows.map(mapAssetRow);
+    const categories = new Set(assets.map((asset) => asset.category));
+    if (categories.size > 1) {
+      return res.status(400).json({ message: "Bulk edit requires assets in the same category." });
+    }
+    return res.json(findCommonFieldValues(assets));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to compute common fields." });
+  }
+});
+
+app.post("/api/assets/bulk-edit", requireAuth, requireAdminForEdit, async (req, res) => {
+  const schema = z.object({
+    ids: z.array(z.number().int().positive()).min(1),
+    fields: z
+      .object({
+        location: z.string().optional().nullable(),
+        office: z.string().optional().nullable(),
+        model: z.string().optional().nullable(),
+        status: z.string().optional().nullable(),
+        details: z.record(z.unknown()).optional(),
+      })
+      .strict(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid bulk edit payload." });
+  }
+
+  const { ids, fields } = parsed.data;
+  if (Object.prototype.hasOwnProperty.call(fields, "assetNo") || Object.prototype.hasOwnProperty.call(fields, "serialNo")) {
+    return res.status(400).json({ message: "Unique identity fields cannot be bulk-edited." });
+  }
+
+  try {
+    const updated = [];
+    await withTransaction(async (client) => {
+      for (const id of ids) {
+        const existingResult = await client.query("SELECT * FROM assets WHERE id = $1", [id]);
+        const existing = existingResult.rows[0];
+        if (!existing) continue;
+        const before = mapAssetRow(existing);
+        const nextDetails = {
+          ...(before.details || {}),
+          ...(fields.details || {}),
+        };
+        const next = {
+          category: before.category,
+          location: fields.location !== undefined ? fields.location : before.location,
+          office: fields.office !== undefined ? fields.office : before.office,
+          model: fields.model !== undefined ? fields.model : before.model,
+          assetNo: before.assetNo,
+          serialNo: before.serialNo,
+          status: fields.status !== undefined ? fields.status : before.status,
+          details: nextDetails,
+        };
+
+        const updateResult = await client.query(
+          `UPDATE assets
+           SET location = $1, office = $2, model = $3, status = $4,
+               details_json = $5::jsonb, updated_by = $6, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $7
+           RETURNING *`,
+          [
+            next.location || null,
+            next.office || null,
+            next.model || null,
+            next.status,
+            JSON.stringify(next.details || {}),
+            req.user.sub,
+            id,
+          ]
+        );
+        const after = mapAssetRow(updateResult.rows[0]);
+        await insertAuditLog(client, {
+          assetId: id,
+          action: "bulk_update",
+          user: req.user,
+          before,
+          after,
+        });
+        updated.push(after);
+      }
+    });
+    return res.json({ updated: updated.length, assets: updated });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to bulk edit assets." });
   }
 });
 
@@ -980,194 +1173,329 @@ app.post("/api/assets/import", requireAuth, async (req, res) => {
   }
 
   const { category, rows } = parsed.data;
-
-  if (!CATEGORY_CONFIG[category]) {
+  const meta = getAllCategoryMeta();
+  if (!CATEGORY_CONFIG[category] && !meta[category] && !getCachedCategoryConfig(category)) {
     return res.status(400).json({ message: `Unknown category '${category}'.` });
   }
 
   try {
-    const { created, needsAttention, skipped } = await withTransaction(async (client) => {
-      const createdRows = [];
-      const attention = [];
-      let skippedCount = 0;
-      const seenAssetNos = new Set();
-      const seenSerialNos = new Set();
-
-      for (let index = 0; index < rows.length; index += 1) {
-        const config = getCachedCategoryConfig(category);
-        const row = normalizeImportRowWithConfig(rows[index], category, config);
-        const payload = {
-          category,
-          location: row.location || null,
-          office: row.office || null,
-          model: row.model || null,
-          assetNo: row.assetNo || null,
-          serialNo: row.serialNo || null,
-          status: row.status,
-          details: row.details || {},
-        };
-
-        const blankFields = collectBlankRequiredFields(payload);
-
-        const result = validateAssetPayload(payload, { mode: "import", allowMissingLocation: true });
-        if (!result.valid) {
-          throw new Error(`Row ${index + 1}: ${result.errors.join(" ")}`);
-        }
-
-        const asset = result.data;
-        const assetNo = asset.assetNo || null;
-        const serialNo = asset.serialNo || null;
-        const duplicateFields = [];
-        let existingId = null;
-
-        if (assetNo) {
-          if (seenAssetNos.has(assetNo)) {
-            duplicateFields.push("Asset No");
-          } else {
-            const existing = await client.query(
-              `SELECT id, asset_no, serial_no FROM assets
-               WHERE asset_no IS NOT NULL AND trim(asset_no) <> '' AND asset_no = $1`,
-              [assetNo]
-            );
-            if (existing.rows[0]) {
-              duplicateFields.push("Asset No");
-              existingId = existing.rows[0].id;
-            }
-          }
-        }
-
-        if (serialNo) {
-          if (seenSerialNos.has(serialNo)) {
-            if (!duplicateFields.includes("Serial No")) {
-              duplicateFields.push("Serial No");
-            }
-          } else {
-            const existing = await client.query(
-              `SELECT id, asset_no, serial_no FROM assets
-               WHERE serial_no IS NOT NULL AND trim(serial_no) <> '' AND serial_no = $1`,
-              [serialNo]
-            );
-            if (existing.rows[0]) {
-              if (!duplicateFields.includes("Serial No")) {
-                duplicateFields.push("Serial No");
-              }
-              if (existingId == null) {
-                existingId = existing.rows[0].id;
-              }
-            }
-          }
-        }
-
-        if (duplicateFields.length > 0) {
-          skippedCount += 1;
-          attention.push({
-            row: index + 1,
-            reason: "duplicate",
-            id: existingId,
-            assetNo,
-            serialNo,
-            blankFields: [],
-            duplicateFields,
-            existingId,
-          });
-          continue;
-        }
-
-        if (assetNo) seenAssetNos.add(assetNo);
-        if (serialNo) seenSerialNos.add(serialNo);
-
-        const savepoint = `sp_import_${index}`;
-        try {
-          await client.query(`SAVEPOINT ${savepoint}`);
-          const insertResult = await client.query(
-            `INSERT INTO assets (
-              category,
-              location,
-              office,
-              model,
-              asset_no,
-              serial_no,
-              status,
-              details_json,
-              created_by,
-              updated_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-            RETURNING *`,
-            [
-              asset.category,
-              asset.location || null,
-              asset.office || null,
-              asset.model || null,
-              assetNo,
-              serialNo,
-              asset.status,
-              JSON.stringify(asset.details || {}),
-              req.user.sub,
-              req.user.sub,
-            ]
-          );
-
-          const mapped = mapAssetRow(insertResult.rows[0]);
-          await insertAuditLog(client, {
-            assetId: mapped.id,
-            action: "create",
-            user: req.user,
-            before: null,
-            after: mapped,
-          });
-          await client.query(`RELEASE SAVEPOINT ${savepoint}`);
-          createdRows.push(mapped);
-
-          if (blankFields.length > 0) {
-            attention.push({
-              row: index + 1,
-              reason: "blank",
-              id: mapped.id,
-              assetNo: mapped.assetNo || null,
-              serialNo: mapped.serialNo || null,
-              blankFields,
-            });
-          }
-        } catch (insertError) {
-          await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-          if (!isUniqueViolation(insertError)) {
-            throw insertError;
-          }
-
-          const conflictBody = await resolveUniqueConflict(insertError, asset);
-          const raceDuplicateFields =
-            duplicateFieldsFromConflictBody(conflictBody).length > 0
-              ? duplicateFieldsFromConflictBody(conflictBody)
-              : ["Asset No or Serial No"];
-          const raceExistingId = conflictBody.conflicts?.[0]?.existingId ?? null;
-
-          skippedCount += 1;
-          attention.push({
-            row: index + 1,
-            reason: "duplicate",
-            id: raceExistingId,
-            assetNo,
-            serialNo,
-            blankFields: [],
-            duplicateFields: raceDuplicateFields,
-            existingId: raceExistingId,
-          });
-        }
-      }
-
-      return { created: createdRows, needsAttention: attention, skipped: skippedCount };
+    const job = await createImportJob({
+      category,
+      userId: req.user.sub,
+      totalRows: rows.length,
     });
 
-    return res.status(201).json({
-      imported: created.length,
-      skipped,
-      assets: created,
-      needsAttention,
+    res.status(202).json({
+      jobId: job.id,
+      status: job.status,
+      progressPercent: job.progressPercent,
+      totals: job.totals,
+    });
+
+    setImmediate(() => {
+      processImportJob(job.id, { category, rows, user: req.user }).catch((error) => {
+        console.error("Import job failed:", job.id, error);
+      });
     });
   } catch (error) {
-    return res.status(400).json({
-      message: error.message || "Import failed. No rows were imported.",
+    console.error(error);
+    return res.status(500).json({ message: error.message || "Failed to start import." });
+  }
+});
+
+app.get("/api/import-jobs/latest", requireAuth, async (req, res) => {
+  try {
+    const job = await getLatestImportJob(req.user.sub);
+    return res.json({ job });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to load import job." });
+  }
+});
+
+app.get("/api/import-jobs/:id", requireAuth, async (req, res) => {
+  try {
+    const job = await getImportJob(Number(req.params.id));
+    if (!job) {
+      return res.status(404).json({ message: "Import job not found." });
+    }
+    return res.json({ job });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to load import job." });
+  }
+});
+
+app.get("/api/maintenance/assets", requireAuth, async (req, res) => {
+  try {
+    const year = req.query.year ? Number(req.query.year) : undefined;
+    const category = req.query.category || undefined;
+    const cadence = maintenance.normalizeCadence(req.query.cadence || "quarterly");
+    const assets = await maintenance.listMaintenanceAssets({ year, category, cadence });
+    return res.json({
+      assets,
+      year: year || maintenance.currentCalendarYear(),
+      cadence,
+      currentQuarter: maintenance.currentCalendarQuarter(),
+      currentMonth: maintenance.currentCalendarMonth(),
     });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to load maintenance assets." });
+  }
+});
+
+app.get("/api/maintenance/templates", requireAuth, async (_req, res) => {
+  try {
+    const templates = await maintenance.listTemplates();
+    return res.json({ templates });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to load maintenance templates." });
+  }
+});
+
+app.put(
+  "/api/settings/maintenance-checklists/:cadence/:category",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const template = await maintenance.saveTemplate(
+        req.params.cadence,
+        req.params.category,
+        { name: req.body?.name, items: req.body?.items },
+        req.user.sub
+      );
+      return res.json({ template });
+    } catch (error) {
+      console.error(error);
+      return res.status(400).json({
+        message: error.message || "Failed to save maintenance checklist.",
+      });
+    }
+  }
+);
+
+// Back-compat: treat bare category as quarterly.
+app.put("/api/settings/maintenance-checklists/:category", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const cadence = maintenance.normalizeCadence(req.body?.cadence || "quarterly");
+    const template = await maintenance.saveTemplate(
+      cadence,
+      req.params.category,
+      { name: req.body?.name, items: req.body?.items },
+      req.user.sub
+    );
+    return res.json({ template });
+  } catch (error) {
+    console.error(error);
+    return res.status(400).json({
+      message: error.message || "Failed to save maintenance checklist.",
+    });
+  }
+});
+
+app.get("/api/maintenance/assets/:assetId", requireAuth, async (req, res) => {
+  try {
+    const assetId = Number(req.params.assetId);
+    const year = req.query.year ? Number(req.query.year) : maintenance.currentCalendarYear();
+    const cadence = maintenance.normalizeCadence(req.query.cadence || "quarterly");
+    const quarter = req.query.quarter
+      ? Number(req.query.quarter)
+      : maintenance.currentCalendarQuarter();
+    const month = req.query.month
+      ? Number(req.query.month)
+      : maintenance.currentCalendarMonth();
+    const record = await maintenance.ensureRecord(
+      assetId,
+      { year, cadence, quarter, month },
+      req.user.sub
+    );
+    if (!record) {
+      return res.status(404).json({ message: "Asset not found." });
+    }
+    const assetResult = await query("SELECT * FROM assets WHERE id = $1", [assetId]);
+    const asset = assetResult.rows[0] ? mapAssetRow(assetResult.rows[0]) : null;
+    return res.json({ record, asset });
+  } catch (error) {
+    console.error(error);
+    return res.status(400).json({ message: error.message || "Failed to open maintenance record." });
+  }
+});
+
+app.put("/api/maintenance/records/:id", requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const record = await maintenance.updateRecord(
+      Number(req.params.id),
+      {
+        items: body.items,
+        hardwareType: body.hardwareType,
+        hardwarePart: body.hardwarePart,
+        hardwareReports: body.hardwareReports,
+        hardwareDescription: body.hardwareDescription,
+        softwareType: body.softwareType,
+        softwarePrograms: body.softwarePrograms,
+        softwareReports: body.softwareReports,
+        softwareDescription: body.softwareDescription,
+        solution: body.solution,
+        preparedBy: body.preparedBy,
+        doneBy: body.doneBy,
+      },
+      req.user.sub
+    );
+    if (!record) {
+      return res.status(404).json({ message: "Maintenance record not found." });
+    }
+    return res.json({ record });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to update maintenance record." });
+  }
+});
+
+app.get("/api/maintenance/assets/:assetId/report", requireAuth, async (req, res) => {
+  try {
+    const assetId = Number(req.params.assetId);
+    const year = req.query.year ? Number(req.query.year) : maintenance.currentCalendarYear();
+    const cadence = maintenance.normalizeCadence(req.query.cadence || "quarterly");
+    const quarter = req.query.quarter
+      ? Number(req.query.quarter)
+      : maintenance.currentCalendarQuarter();
+    const month = req.query.month
+      ? Number(req.query.month)
+      : maintenance.currentCalendarMonth();
+    const report = await maintenance.buildMaintenanceReport(assetId, {
+      year,
+      cadence,
+      quarter,
+      month,
+    });
+    if (!report) {
+      return res.status(404).json({
+        message: "Maintenance report not found. Save and complete the form first.",
+      });
+    }
+    if (report.status !== "complete") {
+      return res.status(400).json({
+        message: "Report is available only when maintenance status is complete.",
+      });
+    }
+
+    const format = String(req.query.format || "pdf").toLowerCase();
+    if (format === "json") {
+      return res.json({ report });
+    }
+
+    const periodLabel =
+      cadence === "monthly" ? `M${report.month}-${report.year}` : `Q${report.quarter}-${report.year}`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="change-request-${assetId}-${periodLabel}.pdf"`
+    );
+
+    const doc = new PDFDocument({ margin: 40, size: "A4" });
+    doc.pipe(res);
+
+    const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const left = doc.page.margins.left;
+    let y = doc.page.margins.top;
+
+    function drawSectionBar(title) {
+      doc.save();
+      doc.rect(left, y, pageWidth, 18).fill("#d0d0d0");
+      doc.fillColor("#000").fontSize(10).font("Helvetica-Bold");
+      doc.text(title, left + 6, y + 4, { width: pageWidth - 12 });
+      doc.restore();
+      y += 22;
+      doc.font("Helvetica").fontSize(10).fillColor("#000");
+    }
+
+    function drawField(label, value, options = {}) {
+      const height = options.height || 18;
+      doc.fontSize(9).fillColor("#333").text(label, left, y);
+      const labelWidth = options.labelWidth || 120;
+      const boxX = left + labelWidth;
+      const boxW = pageWidth - labelWidth;
+      doc.rect(boxX, y - 2, boxW, height).stroke("#666");
+      doc.fillColor("#000").fontSize(10).text(String(value || ""), boxX + 4, y + 2, {
+        width: boxW - 8,
+        height: height - 4,
+      });
+      y += height + 6;
+    }
+
+    const completedDate = report.completedAt
+      ? new Date(report.completedAt).toLocaleDateString("en-GB")
+      : new Date().toLocaleDateString("en-GB");
+
+    doc.fontSize(9).fillColor("#444").text("PAD/IT/QR₁", left, y, { align: "left" });
+    doc.text("CONFIDENTIAL", left, y, { width: pageWidth, align: "right" });
+    y += 16;
+    doc.fontSize(13).font("Helvetica-Bold").fillColor("#000")
+      .text("CHANGE REQUEST FORM FOR HARDWARE AND SOFTWARE", left, y, {
+        width: pageWidth,
+        align: "center",
+      });
+    y += 28;
+    doc.font("Helvetica");
+
+    drawField("Prepared by", report.preparedBy || report.doneBy || "");
+    drawField("Date", completedDate);
+
+    drawSectionBar("CONTACT");
+    drawField("Name", report.asset.contactName || report.asset.assignedRoom || "");
+    drawField("Unit / Department", report.asset.office || "");
+    drawField(
+      "Equipment",
+      [
+        report.asset.categoryLabel || report.asset.category,
+        report.asset.model,
+        report.asset.assetNo ? `No. ${report.asset.assetNo}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    );
+
+    drawSectionBar("HARDWARE PROBLEM");
+    drawField("Type / Model", report.hardwareType || "");
+    drawField("Part", report.hardwarePart || "");
+    drawField("Reports", report.hardwareReports || "");
+    drawField("Description of errors", report.hardwareDescription || "", { height: 48 });
+
+    drawSectionBar("SOFTWARE PROBLEM");
+    drawField("Type / Model", report.softwareType || "");
+    drawField("Programs", report.softwarePrograms || "");
+    drawField("Reports", report.softwareReports || "");
+    drawField("Description of errors", report.softwareDescription || "", { height: 48 });
+
+    drawSectionBar("SOLUTION");
+    drawField("Solution", report.solution, { height: 64, labelWidth: 70 });
+
+    drawSectionBar("DONE BY");
+    drawField("Done by", report.doneBy);
+    drawField("Signature", "", { height: 28 });
+
+    drawSectionBar("STATUS");
+    const completed = report.status === "complete";
+    doc.fontSize(10).fillColor("#000");
+    doc.text(`${completed ? "[X]" : "[ ]"} Completed`, left + 8, y);
+    doc.text(`${completed ? "[ ]" : "[X]"} Referred`, left + 140, y);
+    y += 24;
+
+    doc.fontSize(8).fillColor("#666")
+      .text(
+        `Period: ${cadence === "monthly" ? `Month ${report.month}` : `Quarter ${report.quarter}`} ${report.year}`,
+        left,
+        y
+      );
+
+    doc.end();
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to generate maintenance report." });
   }
 });
 

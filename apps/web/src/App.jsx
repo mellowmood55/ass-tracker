@@ -11,11 +11,14 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { EntryPage } from "@/pages/EntryPage";
 import { ImportPage } from "@/pages/ImportPage";
 import { AssetsPage } from "@/pages/AssetsPage";
+import { MaintenancePage, MaintenanceFormPage } from "@/pages/MaintenancePage";
+import { MoveAssetPage } from "@/pages/MoveAssetPage";
 import { SettingsHubPage } from "@/pages/SettingsHubPage";
 import { AccountSettingsPage } from "@/pages/settings/AccountSettingsPage";
 import { AppearanceSettingsPage } from "@/pages/settings/AppearanceSettingsPage";
 import { UsersSettingsPage } from "@/pages/settings/UsersSettingsPage";
 import { EditCategoryFieldsPage } from "@/pages/settings/EditCategoryFieldsPage";
+import { MaintenanceChecklistsPage } from "@/pages/settings/MaintenanceChecklistsPage";
 
 function EditRedirect() {
   const { id } = useParams();
@@ -41,6 +44,9 @@ function App() {
                 <Route path="entry" element={<EntryPage />} />
                 <Route path="import" element={<ImportPage />} />
                 <Route path="assets" element={<AssetsPage />} />
+                <Route path="move-asset" element={<MoveAssetPage />} />
+                <Route path="maintenance" element={<MaintenancePage />} />
+                <Route path="maintenance/:assetId" element={<MaintenanceFormPage />} />
                 <Route path="settings" element={<SettingsHubPage />}>
                   <Route index element={<Navigate to="account" replace />} />
                   <Route path="account" element={<AccountSettingsPage />} />
@@ -58,6 +64,14 @@ function App() {
                     element={
                       <RequireAdmin>
                         <EditCategoryFieldsPage />
+                      </RequireAdmin>
+                    }
+                  />
+                  <Route
+                    path="maintenance-checklists"
+                    element={
+                      <RequireAdmin>
+                        <MaintenanceChecklistsPage />
                       </RequireAdmin>
                     }
                   />

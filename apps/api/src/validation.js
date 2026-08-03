@@ -88,11 +88,21 @@ function collectBlankRequiredFields(payload) {
 }
 
 function validateSelectValue(field, value, errors, isImport) {
-  if (isMissing(value)) return;
-  if (field.type !== "select" || !field.options?.length) return;
-  if (!field.options.includes(value)) {
-    errors.push(`Invalid value '${value}' for '${field.label}'.`);
-  }
+  if (isMissing(value)) return true;
+  if (field.type !== "select" || !field.options?.length) return true;
+  if (field.options.includes(value)) return true;
+  // Import: never reject mismatched fixed lists — caller soft-clears the value.
+  if (isImport) return false;
+  errors.push(`Invalid value '${value}' for '${field.label}'.`);
+  return false;
+}
+
+function softClearSelect(value, field, isImport) {
+  if (!isImport) return value;
+  if (isMissing(value)) return value;
+  if (field.type !== "select" || !field.options?.length) return value;
+  if (field.options.includes(value)) return value;
+  return field.type === "select" ? "" : value;
 }
 
 function validateAssetPayload(payload, options = {}) {
@@ -119,16 +129,18 @@ function validateAssetPayload(payload, options = {}) {
   };
 
   const config = getConfig(data.category);
-  const meta = CATEGORY_CONFIG[data.category];
-  if (!config || !meta) {
+  if (!config) {
     return { valid: false, errors: ["Invalid category selected."] };
   }
+  const meta = CATEGORY_CONFIG[data.category] || { label: data.category };
 
   const errors = [];
 
   if (isImport) {
+    // assets.status is NOT NULL in Postgres — never send SQL null on import.
+    // Empty string still counts as blank for collectBlankRequiredFields / needsAttention.
     if (isMissing(data.status)) {
-      data.status = null;
+      data.status = "";
     }
 
     for (const field of config.detailFields || []) {
@@ -172,22 +184,39 @@ function validateAssetPayload(payload, options = {}) {
     const locationField = (config.sharedFields || []).find((field) => field.name === "location");
     const options = locationField?.options || [];
     if (options.length && !options.includes(data.location)) {
-      errors.push(`Location must be one of: ${options.join(", ")}.`);
+      if (isImport) {
+        data.location = null;
+      } else {
+        errors.push(`Location must be one of: ${options.join(", ")}.`);
+      }
     }
   }
 
   for (const field of config.sharedFields || []) {
-    validateSelectValue(field, data[field.name], errors, isImport);
+    if (field.name === "status") continue; // free-text / alias-normalized; never reject on import
+    const current = data[field.name];
+    const ok = validateSelectValue(field, current, errors, isImport);
+    if (!ok && isImport) {
+      data[field.name] = softClearSelect(current, field, true);
+    }
   }
 
   for (const field of config.detailFields || []) {
     if (!fieldIsVisible(field, data.details, data)) continue;
-    validateSelectValue(field, data.details[field.name], errors, isImport);
+    const current = data.details[field.name];
+    const ok = validateSelectValue(field, current, errors, isImport);
+    if (!ok && isImport) {
+      data.details[field.name] = softClearSelect(current, field, true);
+    }
 
     if (field.type === "number" && !isMissing(data.details[field.name])) {
       const numeric = Number(data.details[field.name]);
       if (Number.isNaN(numeric) || numeric < 0) {
-        errors.push(`Detail field '${field.label}' must be a non-negative number.`);
+        if (isImport) {
+          data.details[field.name] = "";
+        } else {
+          errors.push(`Detail field '${field.label}' must be a non-negative number.`);
+        }
       }
     }
   }

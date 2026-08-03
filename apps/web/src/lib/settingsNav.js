@@ -3,6 +3,7 @@ export const SETTINGS_NAV = [
   { to: "/settings/appearance", label: "Appearance", adminOnly: false },
   { to: "/settings/users", label: "Users", adminOnly: true },
   { to: "/settings/edit-category-fields", label: "Edit Category Fields", adminOnly: true },
+  { to: "/settings/maintenance-checklists", label: "Maintenance checklists", adminOnly: true },
 ];
 
 export function getSettingsNavForRole(role) {

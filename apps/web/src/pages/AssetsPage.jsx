@@ -80,9 +80,7 @@ export function AssetsPage() {
     const fromAssets = assets
       .map((asset) => String(asset.status || "").trim())
       .filter(Boolean);
-    return [...new Set([...ALL_STATUSES, ...fromAssets])].sort((a, b) =>
-      a.localeCompare(b)
-    );
+    return [...new Set([...ALL_STATUSES, ...fromAssets])].sort((a, b) => a.localeCompare(b));
   }, [assets]);
 
   const returnTo = riskFilter ? `/assets?risk=${riskFilter}` : "/assets";
@@ -113,7 +111,7 @@ export function AssetsPage() {
     try {
       sessionStorage.setItem(CATEGORY_TAB_KEY, code);
     } catch {
-      /* ignore quota / private mode */
+      /* ignore */
     }
   }
 
@@ -147,10 +145,13 @@ export function AssetsPage() {
       const anchor = document.createElement("a");
       anchor.href = url;
       const selectedCategoryLabel =
-        categories.find((category) => category.code === exportFilters.category)?.label || "all-categories";
+        categories.find((category) => category.code === exportFilters.category)?.label ||
+        "all-categories";
       const filenamePrefix = selectedCategoryLabel.toLowerCase().replace(/\s+/g, "-");
       anchor.download =
-        format === "xlsx" ? `${filenamePrefix}-asset-report.xlsx` : `${filenamePrefix}-asset-report.pdf`;
+        format === "xlsx"
+          ? `${filenamePrefix}-asset-report.xlsx`
+          : `${filenamePrefix}-asset-report.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -173,7 +174,7 @@ export function AssetsPage() {
     <div className="space-y-5 animate-in-fade">
       <PageHeader
         title="Assets"
-        description="Browse one category at a time. Export reports or jump to Import."
+        description="Browse assets by category, status, and search."
         actions={
           <>
             <Button variant="outline" asChild>
@@ -226,7 +227,9 @@ export function AssetsPage() {
               <p className="text-sm font-semibold text-foreground">Needs action</p>
               <p className="text-sm text-muted-foreground">
                 Showing {riskMatchCount} asset{riskMatchCount === 1 ? "" : "s"} for{" "}
-                <span className="font-medium text-foreground">{formatRiskFilterLabel(riskFilter)}</span>
+                <span className="font-medium text-foreground">
+                  {formatRiskFilterLabel(riskFilter)}
+                </span>
               </p>
             </div>
           </div>
@@ -284,12 +287,11 @@ export function AssetsPage() {
             id="filter-search"
             type="text"
             value={search}
-            placeholder="Asset no, serial, office..."
+            placeholder="Search asset values, statuses, office, model..."
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
       </div>
-
       {visibleCategories.length === 0 ? (
         <p className="text-sm text-muted-foreground">No categories available.</p>
       ) : (

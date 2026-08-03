@@ -76,8 +76,13 @@ export function AssetForm({
     try {
       const payload = payloadFromForm(formState, selectedCategory, activeCategory);
       if (editingId) {
-        await api(`/api/assets/${editingId}`, { method: "PUT", body: JSON.stringify(payload) }, auth.token);
+        const result = await api(`/api/assets/${editingId}`, { method: "PUT", body: JSON.stringify(payload) }, auth.token);
         toast.success("Asset updated successfully.");
+        if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+          for (const warning of result.warnings) {
+            toast.message(warning, { duration: 8000 });
+          }
+        }
       } else {
         await api("/api/assets", { method: "POST", body: JSON.stringify(payload) }, auth.token);
         toast.success("Asset created successfully.");

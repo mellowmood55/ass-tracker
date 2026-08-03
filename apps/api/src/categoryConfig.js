@@ -7,6 +7,8 @@ const {
   COMPUTER_TYPES,
   STATUS_BY_CATEGORY,
   DEVICE_TYPE_ALIASES,
+  HARDWARE_STATUS_ALIASES,
+  SOFTWARE_STATUS_ALIASES,
   normalizeKey,
   matchCanonicalOption,
   normalizeBooleanValue,
@@ -16,7 +18,7 @@ const {
 
 const FIELD_ALIASES = {
   location: ["location", "floor", "wing", "site", "building", "area", "loc", "9th floor", "10th floor"],
-  office: ["office", "office name", "office no", "department", "dept", "unit", "section"],
+  office: ["office", "office name", "office no", "unit", "section"],
   model: ["model", "model name", "model no", "model number", "make model", "device model"],
   assetNo: ["asset no", "asset number", "assetno", "asset id", "asset tag", "tag", "inventory no"],
   serialNo: ["serial no", "serial number", "serialno", "serial", "s/n", "sn"],
@@ -40,6 +42,8 @@ const FIELD_ALIASES = {
   ],
   antivirusType: ["antivirus type", "av type", "antivirus name"],
   remainingSubscriptionDays: ["remaining subscription days", "subscription days", "av days left"],
+  ram: ["ram", "memory", "memory size", "ram size", "gb ram"],
+  assignedRoom: ["assigned room", "assigned user", "assignee", "user assigned", "assigned to"],
   description: ["description", "desc", "software description"],
   function: ["function", "purpose", "software function"],
   item: ["item", "item name", "asset item"],
@@ -101,9 +105,51 @@ function buildFieldLists(config) {
   return [...(config.sharedFields || []), ...(config.detailFields || [])];
 }
 
+function getEmptyCategoryConfig() {
+  return {
+    groups: [],
+    sharedFields: [
+      withAliases({
+        name: "office",
+        label: "Office",
+        type: "text",
+        required: false,
+      }),
+      withAliases({
+        name: "model",
+        label: "Model",
+        type: "text",
+        required: false,
+      }),
+      withAliases({
+        name: "assetNo",
+        label: "Asset No",
+        type: "text",
+        required: false,
+      }),
+      withAliases({
+        name: "serialNo",
+        label: "Serial No",
+        type: "text",
+        required: false,
+      }),
+      withAliases({
+        name: "status",
+        label: "Status",
+        type: "text",
+        required: true,
+        locked: true,
+      }),
+    ],
+    detailFields: [],
+  };
+}
+
 function getDefaultCategoryConfig(code) {
   const staticConfig = CATEGORY_CONFIG[code];
-  if (!staticConfig) return null;
+  if (!staticConfig) {
+    return getEmptyCategoryConfig();
+  }
 
   const sharedRequired = staticConfig.sharedRequired || [];
   const detailRequired = staticConfig.detailRequired || [];
@@ -159,19 +205,6 @@ function getDefaultCategoryConfig(code) {
             detailRequired
           )
         ),
-        withAliases(
-          markLocked(
-            {
-              name: "officeInstalled",
-              label: "Office Installed",
-              type: "boolean",
-              required: true,
-              groupId: "microsoftOffice",
-            },
-            sharedRequired,
-            detailRequired
-          )
-        ),
         withAliases({
           name: "officeType",
           label: "Office Type",
@@ -182,7 +215,7 @@ function getDefaultCategoryConfig(code) {
         }),
         withAliases({
           name: "officeStatus",
-          label: "Status",
+          label: "Office Status",
           type: "select",
           required: false,
           groupId: "microsoftOffice",
@@ -208,6 +241,20 @@ function getDefaultCategoryConfig(code) {
           type: "number",
           required: false,
           showWhen: { field: "antivirusInstalled", equals: true },
+        }),
+        withAliases({
+          name: "ram",
+          label: "RAM",
+          type: "text",
+          required: false,
+          aliases: ["memory", "memory size", "ram size", "gb ram"],
+        }),
+        withAliases({
+          name: "assignedRoom",
+          label: "Assigned room",
+          type: "text",
+          required: false,
+          aliases: ["assigned user", "assignee", "user assigned", "assigned to"],
         }),
       ],
     };
@@ -237,6 +284,7 @@ function getDefaultCategoryConfigs() {
 }
 
 let configCache = null;
+let categoryMetaCache = null;
 
 function getCachedCategoryConfig(code) {
   if (!configCache) {
@@ -252,8 +300,99 @@ function getCachedCategoryConfigs() {
   return configCache;
 }
 
+async function refreshCategoryMetaCache() {
+  const result = await query("SELECT code, label, is_builtin FROM asset_categories ORDER BY label");
+  const meta = {};
+  for (const row of result.rows) {
+    meta[row.code] = {
+      label: row.label,
+      isBuiltin: row.is_builtin,
+      statuses: STATUS_BY_CATEGORY[row.code] || [
+        "Functional",
+        "Non-funct",
+        "Under Repair",
+        "Active",
+        "Inactive",
+      ],
+    };
+  }
+  for (const [code, config] of Object.entries(CATEGORY_CONFIG)) {
+    if (!meta[code]) {
+      meta[code] = {
+        label: config.label,
+        isBuiltin: true,
+        statuses: STATUS_BY_CATEGORY[code] || [],
+      };
+    }
+  }
+  categoryMetaCache = meta;
+  return categoryMetaCache;
+}
+
 function getCategoryMeta(code) {
+  if (categoryMetaCache?.[code]) {
+    return {
+      ...(CATEGORY_CONFIG[code] || {}),
+      label: categoryMetaCache[code].label,
+    };
+  }
   return CATEGORY_CONFIG[code] || null;
+}
+
+function getAllCategoryMeta() {
+  return categoryMetaCache || {};
+}
+
+function slugifyCategoryCode(label) {
+  return String(label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+}
+
+async function createCategory({ code, label }, actorId) {
+  const trimmedLabel = String(label || "").trim();
+  if (!trimmedLabel) {
+    return { ok: false, status: 400, message: "Category label is required." };
+  }
+
+  let categoryCode = String(code || slugifyCategoryCode(trimmedLabel)).trim().toLowerCase();
+  categoryCode = categoryCode.replace(/[^a-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  if (!categoryCode) {
+    return { ok: false, status: 400, message: "Category code is invalid." };
+  }
+
+  const existing = await query("SELECT code FROM asset_categories WHERE code = $1", [categoryCode]);
+  if (existing.rows[0] || CATEGORY_CONFIG[categoryCode] || configCache?.[categoryCode]) {
+    return { ok: false, status: 409, message: `Category '${categoryCode}' already exists.` };
+  }
+
+  const config = getEmptyCategoryConfig();
+
+  await query(
+    `INSERT INTO asset_categories (code, label, is_builtin, created_by)
+     VALUES ($1, $2, FALSE, $3)`,
+    [categoryCode, trimmedLabel, actorId]
+  );
+
+  await query(
+    `INSERT INTO category_field_configs (category_code, config_json, updated_by, updated_at)
+     VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
+     ON CONFLICT (category_code) DO NOTHING`,
+    [categoryCode, JSON.stringify(config), actorId]
+  );
+
+  await refreshConfigCache();
+  return {
+    ok: true,
+    category: {
+      code: categoryCode,
+      label: trimmedLabel,
+      config,
+      statuses: ["Functional", "Non-funct", "Under Repair"],
+    },
+  };
 }
 
 function normalizeFieldValue(field, rawValue, categoryCode) {
@@ -263,7 +402,17 @@ function normalizeFieldValue(field, rawValue, categoryCode) {
 
   if (field.name === "status") {
     if (rawValue === null || rawValue === undefined) return rawValue;
-    return String(rawValue).trim();
+    const trimmed = String(rawValue).trim();
+    if (!trimmed) return trimmed;
+    const options = STATUS_BY_CATEGORY[categoryCode] || [];
+    const aliases =
+      categoryCode === CATEGORY_CODES.SOFTWARE
+        ? SOFTWARE_STATUS_ALIASES
+        : HARDWARE_STATUS_ALIASES;
+    if (options.length) {
+      return normalizeFromAliasMap(trimmed, options, aliases);
+    }
+    return trimmed;
   }
 
   if (field.type === "boolean") {
@@ -385,10 +534,11 @@ async function refreshConfigCache() {
   const cache = { ...defaults };
 
   for (const row of result.rows) {
-    cache[row.category_code] = row.config_json;
+    cache[row.category_code] = patchCategoryConfig(row.category_code, row.config_json);
   }
 
   configCache = cache;
+  await refreshCategoryMetaCache();
   return configCache;
 }
 
@@ -408,13 +558,21 @@ function patchCategoryConfig(code, config) {
   next.sharedFields = (next.sharedFields || []).map((field) => {
     if (field.name === "status") {
       const { options: _removedOptions, ...rest } = field;
-      return { ...rest, type: "text" };
+      return { ...rest, type: "text", required: true };
     }
     return field;
   });
 
   if (code !== CATEGORY_CODES.COMPUTER) {
     return next;
+  }
+
+  // Force-remove Office Installed and Department from user-facing Computer details.
+  next.detailFields = (next.detailFields || []).filter(
+    (field) => field.name !== "officeInstalled" && field.name !== "department"
+  );
+  if (Array.isArray(next.detailRequired)) {
+    next.detailRequired = next.detailRequired.filter((name) => name !== "officeInstalled");
   }
 
   next.detailFields = (next.detailFields || []).map((field) => {
@@ -424,6 +582,10 @@ function patchCategoryConfig(code, config) {
       if (hasLegacy || !field.options?.length) {
         return { ...field, options: OFFICE_TYPE_VERSIONS };
       }
+    }
+
+    if (field.name === "officeStatus") {
+      return { ...field, label: "Office Status" };
     }
 
     if (field.name === "osInstalled") {
@@ -453,6 +615,29 @@ function patchCategoryConfig(code, config) {
 
     return field;
   });
+
+  const detailNames = new Set((next.detailFields || []).map((field) => field.name));
+  const extras = [
+    withAliases({
+      name: "ram",
+      label: "RAM",
+      type: "text",
+      required: false,
+      aliases: ["memory", "memory size", "ram size", "gb ram"],
+    }),
+    withAliases({
+      name: "assignedRoom",
+      label: "Assigned room",
+      type: "text",
+      required: false,
+      aliases: ["assigned user", "assignee", "user assigned", "assigned to"],
+    }),
+  ];
+  for (const field of extras) {
+    if (!detailNames.has(field.name)) {
+      next.detailFields = [...(next.detailFields || []), field];
+    }
+  }
 
   return next;
 }
@@ -487,10 +672,13 @@ async function seedCategoryFieldConfigs() {
 
 async function loadAllCategoryConfigsForApi() {
   const cache = getCachedCategoryConfigs();
-  return Object.entries(CATEGORY_CONFIG).map(([code, meta]) => ({
+  const meta = getAllCategoryMeta();
+  const codes = Object.keys(meta).length > 0 ? Object.keys(meta) : Object.keys(CATEGORY_CONFIG);
+
+  return codes.map((code) => ({
     code,
-    label: meta.label,
-    statuses: STATUS_BY_CATEGORY[code],
+    label: meta[code]?.label || CATEGORY_CONFIG[code]?.label || code,
+    statuses: meta[code]?.statuses || STATUS_BY_CATEGORY[code] || [],
     groups: cache[code]?.groups || [],
     sharedFields: cache[code]?.sharedFields || [],
     detailFields: cache[code]?.detailFields || [],
@@ -498,7 +686,8 @@ async function loadAllCategoryConfigsForApi() {
 }
 
 async function saveCategoryConfig(code, incomingConfig, actorId) {
-  if (!CATEGORY_CONFIG[code]) {
+  const meta = getAllCategoryMeta();
+  if (!CATEGORY_CONFIG[code] && !meta[code] && !configCache?.[code]) {
     return { ok: false, status: 404, message: "Unknown category." };
   }
 
@@ -546,10 +735,14 @@ function buildReportRowFromConfig(asset, config) {
 
 async function loadSettingsPayload() {
   const cache = getCachedCategoryConfigs();
-  return Object.entries(CATEGORY_CONFIG).map(([code, meta]) => ({
+  const meta = getAllCategoryMeta();
+  const codes = Object.keys(meta).length > 0 ? Object.keys(meta) : Object.keys(CATEGORY_CONFIG);
+
+  return codes.map((code) => ({
     code,
-    label: meta.label,
-    config: cache[code],
+    label: meta[code]?.label || CATEGORY_CONFIG[code]?.label || code,
+    isBuiltin: meta[code]?.isBuiltin ?? Boolean(CATEGORY_CONFIG[code]),
+    config: cache[code] || getEmptyCategoryConfig(),
   }));
 }
 
@@ -557,19 +750,23 @@ module.exports = {
   categoryConfigSchema,
   getDefaultCategoryConfig,
   getDefaultCategoryConfigs,
+  getEmptyCategoryConfig,
   getCachedCategoryConfig,
   getCachedCategoryConfigs,
   getCategoryMeta,
+  getAllCategoryMeta,
   refreshConfigCache,
   seedCategoryFieldConfigs,
   patchStoredCategoryDefaults,
   loadAllCategoryConfigsForApi,
   loadSettingsPayload,
   saveCategoryConfig,
+  createCategory,
   validateCategoryConfigPayload,
   normalizeImportRowWithConfig,
   normalizeFieldValue,
   fieldIsVisible,
   fieldIsRequired,
   buildReportRowFromConfig,
+  buildFieldLists,
 };

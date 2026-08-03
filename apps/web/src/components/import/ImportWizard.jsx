@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { Check, ChevronLeft, ChevronRight, Download, Upload } from "lucide-react";
@@ -135,6 +135,8 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(null);
+  const [lastJobStatus, setLastJobStatus] = useState(null);
   const [importResult, setImportResult] = useState(null);
 
   const effectiveCategory = selectedCategory || categories[0]?.code || "";
@@ -177,6 +179,40 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
     setError("");
     setWarning("");
     setImportResult(null);
+    setImportProgress(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLatestJob() {
+      try {
+        const data = await api("/api/import-jobs/latest", {}, auth.token);
+        if (!cancelled && data.job) {
+          setLastJobStatus(data.job);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (auth.token) void loadLatestJob();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.token]);
+
+  async function pollImportJob(jobId) {
+    const started = Date.now();
+    while (Date.now() - started < 10 * 60 * 1000) {
+      const data = await api(`/api/import-jobs/${jobId}`, {}, auth.token);
+      const job = data.job;
+      setImportProgress(job);
+      setLastJobStatus(job);
+      if (job.status === "completed" || job.status === "failed") {
+        return job;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    throw new Error("Import timed out while waiting for progress.");
   }
 
   function handleCategoryChange(value) {
@@ -282,52 +318,74 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
 
     setImporting(true);
     setError("");
+    setImportProgress({
+      status: "importing",
+      progressPercent: 0,
+      totals: { total: rows.length, imported: 0, updated: 0, skipped: 0 },
+    });
     try {
       saveStoredMapping(category.code, mapping);
       const payloads = applyMapping(rows, mapping, category);
-      const result = await api(
+      const start = await api(
         "/api/assets/import",
         { method: "POST", body: JSON.stringify({ category: category.code, rows: payloads }) },
         auth.token
       );
-      const skipped = Number(result.skipped) || 0;
-      if (skipped > 0) {
-        toast.success(
-          `Imported ${result.imported} asset(s); skipped ${skipped} duplicate row(s).`
-        );
-      } else {
-        toast.success(`Imported ${result.imported} asset(s) successfully.`);
+
+      const job = await pollImportJob(start.jobId);
+      if (job.status === "failed") {
+        throw new Error(job.errorMessage || "Import failed.");
       }
 
-      const needsAttention = Array.isArray(result.needsAttention) ? result.needsAttention : [];
+      const totals = job.totals || {};
+      const imported = Number(totals.imported) || 0;
+      const updated = Number(totals.updated) || 0;
+      const skipped = Number(totals.skipped) || 0;
+      const needsAttention = Array.isArray(totals.needsAttention) ? totals.needsAttention : [];
+
+      toast.success(
+        `Imported ${imported}; auto-filled ${updated}; skipped ${skipped} duplicate(s).`
+      );
+
       const blanks = needsAttention.filter(
         (entry) => entry.reason === "blank" || (entry.blankFields && entry.blankFields.length > 0)
       );
       const duplicates = needsAttention.filter((entry) => entry.reason === "duplicate");
+      const autofills = needsAttention.filter((entry) => entry.reason === "autofill");
 
+      if (autofills.length > 0) {
+        toast.message(`${autofills.length} duplicate row(s) auto-filled missing fields.`);
+      }
       if (blanks.length > 0) {
         toast.warning(
           `${blanks.length} imported asset(s) have blank required fields. Edit them in Assets.`,
           { duration: 10000 }
         );
       }
-
       if (duplicates.length > 0) {
         toast.warning(
-          `${duplicates.length} row(s) skipped as duplicates (Asset No / Serial No).`,
+          `${duplicates.length} row(s) skipped as duplicates (no new fillable values).`,
           { duration: 10000 }
         );
       }
 
       setImportResult({
-        imported: result.imported,
+        imported,
+        updated,
         skipped,
         needsAttention,
+        completedAt: job.completedAt,
+        status: job.status,
       });
       setStepIndex(4);
       onImported?.();
     } catch (err) {
       setError(err.message);
+      setLastJobStatus((current) =>
+        current
+          ? { ...current, status: "failed", errorMessage: err.message }
+          : { status: "failed", errorMessage: err.message }
+      );
       toast.error(err.message);
     } finally {
       setImporting(false);
@@ -549,6 +607,41 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
 
         {stepIndex === 3 && (
           <div className="space-y-3">
+            {lastJobStatus && !importing && (
+              <Alert>
+                <AlertDescription>
+                  Last import:{" "}
+                  <strong className="capitalize">{lastJobStatus.status}</strong>
+                  {lastJobStatus.completedAt
+                    ? ` · Completed at ${new Date(lastJobStatus.completedAt).toLocaleString()}`
+                    : null}
+                  {lastJobStatus.status === "failed" && lastJobStatus.errorMessage
+                    ? ` · ${lastJobStatus.errorMessage}`
+                    : null}
+                </AlertDescription>
+              </Alert>
+            )}
+            {importing && importProgress && (
+              <div className="space-y-2 rounded-lg border p-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-semibold capitalize">
+                    {importProgress.status === "importing" ? "Importing" : importProgress.status}
+                  </span>
+                  <span>{importProgress.progressPercent ?? 0}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${importProgress.progressPercent ?? 0}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Imported {importProgress.totals?.imported ?? 0} · Auto-filled{" "}
+                  {importProgress.totals?.updated ?? 0} · Skipped{" "}
+                  {importProgress.totals?.skipped ?? 0}
+                </p>
+              </div>
+            )}
             {mappedPreview.length > 0 && previewColumns.length > 0 ? (
               <>
                 <p className="text-sm text-muted-foreground">
@@ -596,7 +689,16 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
           <div className="space-y-4">
             <Alert>
               <AlertDescription>
-                Imported <strong>{importResult.imported}</strong> asset(s)
+                Status: <strong className="capitalize">{importResult.status || "completed"}</strong>
+                {importResult.completedAt
+                  ? ` · Completed at ${new Date(importResult.completedAt).toLocaleString()}`
+                  : null}
+                . Imported <strong>{importResult.imported}</strong>
+                {importResult.updated > 0 ? (
+                  <>
+                    ; auto-filled <strong>{importResult.updated}</strong>
+                  </>
+                ) : null}
                 {importResult.skipped > 0 ? (
                   <>
                     ; skipped <strong>{importResult.skipped}</strong> duplicate row(s)
@@ -642,6 +744,7 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
                             {(entry.blankFields || []).join(", ") ||
+                              (entry.filledFields || []).join(", ") ||
                               (entry.duplicateFields || []).join(", ") ||
                               "—"}
                           </TableCell>
@@ -692,7 +795,7 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
             <Button type="button" onClick={goNext} disabled={!canGoNext() || importing}>
               {importing && <Spinner className="mr-2" />}
               {stepIndex === 3 ? (
-                <>Import {rows.length > 0 ? `${rows.length} row(s)` : ""}</>
+                <>Import</>
               ) : (
                 <>
                   Next
