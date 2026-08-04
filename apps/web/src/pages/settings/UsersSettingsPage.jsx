@@ -181,6 +181,12 @@ export function UsersSettingsPage() {
   async function handleResetPassword(event) {
     event.preventDefault();
     if (!resetTarget) return;
+    if (Number(resetTarget.id) === Number(auth.user?.id)) {
+      toast.error("Use Account settings to change your own password.");
+      setResetTarget(null);
+      setResetPassword("");
+      return;
+    }
     if (resetPassword.length < 8) {
       toast.error("Password must be at least 8 characters.");
       return;
@@ -301,6 +307,12 @@ export function UsersSettingsPage() {
                               type="button"
                               variant="outline"
                               size="sm"
+                              disabled={isSelf}
+                              title={
+                                isSelf
+                                  ? "Use Account settings to change your own password."
+                                  : undefined
+                              }
                               onClick={() => {
                                 setResetPassword("");
                                 setResetTarget(user);

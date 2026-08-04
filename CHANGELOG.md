@@ -20,5 +20,8 @@
 - Production serves the Vite web build from Express so one hosted URL works on any device.
 - Fresh installs seed only the default `admin` / `admin123` account (no sample assets).
 
+### Fixed
+- Admin users can no longer reset their own password from user management without the current-password check; self password changes must use Account settings.
+
 ### Previously added
 - Render-oriented root `build` / `start` scripts and Neon + Render setup docs in the README.

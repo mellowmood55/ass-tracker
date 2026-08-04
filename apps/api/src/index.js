@@ -324,6 +324,12 @@ app.post("/api/users/:id/reset-password", requireAuth, requireAdmin, async (req,
     return res.status(400).json({ message: "Invalid user id." });
   }
 
+  if (id === Number(req.user.sub)) {
+    return res.status(400).json({
+      message: "Use account settings to change your own password.",
+    });
+  }
+
   const schema = z.object({
     newPassword: z.string().min(1),
   });
