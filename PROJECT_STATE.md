@@ -22,4 +22,4 @@
 
 ## 4. Current Working State & Pending Tasks
 - [x] Fixed admin self password reset bypass so own-password changes must use current-password verification in Account settings.
-- [ ] Run verification after committing and pushing the fix branch, per cloud workflow.
+- [x] Verification completed: API syntax/test script passed, web build passed, and web lint is blocked by pre-existing lint errors unrelated to the reset guard.
