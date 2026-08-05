@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 
 import { formStateFromAsset, payloadFromForm } from "./assetColumns.js";
 
@@ -25,17 +24,17 @@ describe("dynamic asset field serialization", () => {
       categoryWithCustomSharedField
     );
 
-    assert.equal(state.assetNo, "ICT-001");
-    assert.equal(state.countyOffice, "Mombasa");
-    assert.equal(state.deviceType, "Laptop");
+    expect(state.assetNo).toBe("ICT-001");
+    expect(state.countyOffice).toBe("Mombasa");
+    expect(state.deviceType).toBe("Laptop");
 
     const payload = payloadFromForm(state, "computer", categoryWithCustomSharedField);
 
-    assert.equal(payload.assetNo, "ICT-001");
-    assert.deepEqual(payload.details, {
+    expect(payload.assetNo).toBe("ICT-001");
+    expect(payload.details).toEqual({
       countyOffice: "Mombasa",
       deviceType: "Laptop",
     });
-    assert.equal(Object.prototype.hasOwnProperty.call(payload, "countyOffice"), false);
+    expect(Object.prototype.hasOwnProperty.call(payload, "countyOffice")).toBe(false);
   });
 });

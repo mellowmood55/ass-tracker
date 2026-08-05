@@ -12,13 +12,13 @@
 - `/apps/api/src/validation.js` - Asset payload validation using active category field configuration.
 - `/apps/web/src/lib/assetColumns.js` - Asset form state hydration/serialization and risk helpers.
 - `/apps/web/src/lib/fieldConfig.js` - Category field preview/list column helpers.
-- `/apps/web/src/lib/assetColumns.test.js` - Node test covering custom shared-field form serialization.
+- `/apps/web/src/lib/assetColumns.test.js` - Vitest coverage for custom shared-field form serialization.
 - `/apps/web/src/components/assets/AssetForm.jsx` - Dynamic asset create/edit form.
 - `/apps/web/src/pages/settings/EditCategoryFieldsPage.jsx` - Admin UI for configurable category fields.
 - `/CHANGELOG.md` - User-visible change log.
 
 ## 3. Recently Implemented (Log)
-- **2026-08-05:** Fixed configurable custom shared category fields so they persist via `details_json` across form hydration/submission, API validation, imports, list/report display, and same-category asset edits without silently dropping older dynamic detail keys. Files touched: `apps/web/src/lib/assetColumns.js`, `apps/web/src/lib/fieldConfig.js`, `apps/web/src/lib/assetColumns.test.js`, `apps/web/package.json`, `apps/api/src/validation.js`, `apps/api/src/categoryConfig.js`, `apps/api/src/index.js`, `CHANGELOG.md`, `PROJECT_STATE.md`.
+- **2026-08-05:** Fixed configurable custom shared category fields so they persist via `details_json` across form hydration/submission, API validation, imports, list/report display, and same-category asset edits without silently dropping older dynamic detail keys. Added Vitest for focused web unit coverage. Files touched: `apps/web/src/lib/assetColumns.js`, `apps/web/src/lib/fieldConfig.js`, `apps/web/src/lib/assetColumns.test.js`, `apps/web/package.json`, `apps/web/package-lock.json`, `apps/api/src/validation.js`, `apps/api/src/categoryConfig.js`, `apps/api/src/index.js`, `CHANGELOG.md`, `PROJECT_STATE.md`.
 
 ## 4. Current Working State & Pending Tasks
 - [x] Critical bug fix for custom shared category field persistence implemented.
