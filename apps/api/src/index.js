@@ -486,6 +486,16 @@ function mapAssetRow(row) {
   };
 }
 
+function mergeDetailsForSameCategoryUpdate(existingRow, nextAsset) {
+  if (existingRow.category !== nextAsset.category) {
+    return nextAsset.details || {};
+  }
+  return {
+    ...(parseJsonField(existingRow.details_json) || {}),
+    ...(nextAsset.details || {}),
+  };
+}
+
 async function insertAuditLog(clientOrNull, { assetId, action, user, before, after }) {
   const runner = clientOrNull
     ? (text, params) => clientOrNull.query(text, params)
@@ -892,6 +902,7 @@ app.put("/api/assets/:id", requireAuth, requireAdminForEdit, async (req, res) =>
     }
 
     asset = result.data;
+    asset.details = mergeDetailsForSameCategoryUpdate(existing, asset);
 
     const updateResult = await query(
       `UPDATE assets

@@ -76,6 +76,15 @@ const categoryConfigSchema = z.object({
   detailFields: z.array(fieldDefSchema).default([]),
 });
 
+const FIXED_SHARED_FIELD_NAMES = new Set([
+  "location",
+  "office",
+  "model",
+  "assetNo",
+  "serialNo",
+  "status",
+]);
+
 function withAliases(field, extraAliases = []) {
   const base = FIELD_ALIASES[field.name] || [];
   return {
@@ -297,7 +306,12 @@ function normalizeImportRowWithConfig(row, categoryCode, config) {
 
   for (const field of config.sharedFields || []) {
     if (Object.prototype.hasOwnProperty.call(row, field.name)) {
-      normalized[field.name] = normalizeFieldValue(field, row[field.name], categoryCode);
+      const value = normalizeFieldValue(field, row[field.name], categoryCode);
+      if (FIXED_SHARED_FIELD_NAMES.has(field.name)) {
+        normalized[field.name] = value;
+      } else {
+        details[field.name] = value;
+      }
     }
   }
 
@@ -534,7 +548,10 @@ function buildReportRowFromConfig(asset, config) {
   const row = {};
 
   for (const field of config.sharedFields || []) {
-    row[field.label] = formatFieldValueForExport(field, asset[field.name]);
+    const value = FIXED_SHARED_FIELD_NAMES.has(field.name)
+      ? asset[field.name]
+      : details[field.name];
+    row[field.label] = formatFieldValueForExport(field, value);
   }
 
   for (const field of config.detailFields || []) {

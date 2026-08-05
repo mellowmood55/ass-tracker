@@ -18,6 +18,15 @@ const assetPayloadSchema = z.object({
   details: z.record(z.unknown()).default({}),
 });
 
+const FIXED_SHARED_FIELD_NAMES = new Set([
+  "location",
+  "office",
+  "model",
+  "assetNo",
+  "serialNo",
+  "status",
+]);
+
 function isMissing(value) {
   if (value === null || value === undefined) {
     return true;
@@ -46,6 +55,13 @@ function fieldLabel(config, fieldName) {
   return field?.label || fieldName;
 }
 
+function sharedFieldValue(payload, field) {
+  if (FIXED_SHARED_FIELD_NAMES.has(field.name)) {
+    return payload[field.name];
+  }
+  return (payload.details || {})[field.name];
+}
+
 function categoryUsesLocationOptions(categoryCode) {
   const config = getConfig(categoryCode);
   if (!config) return false;
@@ -63,7 +79,7 @@ function collectBlankRequiredFields(payload) {
 
   for (const field of config.sharedFields || []) {
     if (!fieldIsRequired(field, config)) continue;
-    if (isMissing(payload[field.name])) {
+    if (isMissing(sharedFieldValue(payload, field))) {
       blanks.push(field.label || field.name);
     }
   }
@@ -92,6 +108,14 @@ function validateSelectValue(field, value, errors, isImport) {
   if (field.type !== "select" || !field.options?.length) return;
   if (!field.options.includes(value)) {
     errors.push(`Invalid value '${value}' for '${field.label}'.`);
+  }
+}
+
+function validateNumberValue(field, value, errors) {
+  if (field.type !== "number" || isMissing(value)) return;
+  const numeric = Number(value);
+  if (Number.isNaN(numeric) || numeric < 0) {
+    errors.push(`Field '${field.label}' must be a non-negative number.`);
   }
 }
 
@@ -146,7 +170,7 @@ function validateAssetPayload(payload, options = {}) {
     for (const field of config.sharedFields || []) {
       if (!fieldIsRequired(field, config)) continue;
       if (field.name === "status") continue; // already checked above without fixed list
-      if (isMissing(data[field.name])) {
+      if (isMissing(sharedFieldValue(data, field))) {
         errors.push(`Field '${field.label}' is required for ${meta.label}.`);
       }
     }
@@ -177,19 +201,15 @@ function validateAssetPayload(payload, options = {}) {
   }
 
   for (const field of config.sharedFields || []) {
-    validateSelectValue(field, data[field.name], errors, isImport);
+    const value = sharedFieldValue(data, field);
+    validateSelectValue(field, value, errors, isImport);
+    validateNumberValue(field, value, errors);
   }
 
   for (const field of config.detailFields || []) {
     if (!fieldIsVisible(field, data.details, data)) continue;
     validateSelectValue(field, data.details[field.name], errors, isImport);
-
-    if (field.type === "number" && !isMissing(data.details[field.name])) {
-      const numeric = Number(data.details[field.name]);
-      if (Number.isNaN(numeric) || numeric < 0) {
-        errors.push(`Detail field '${field.label}' must be a non-negative number.`);
-      }
-    }
+    validateNumberValue(field, data.details[field.name], errors);
   }
 
   if (errors.length > 0) {
