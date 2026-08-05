@@ -22,4 +22,5 @@
 
 ## 4. Current Working State & Pending Tasks
 - [x] Critical bug fix for custom shared category field persistence implemented.
-- [ ] Run lint/tests/build after committing and pushing the implementation branch.
+- [x] Verification run after commit/push: `npm test --prefix apps/web`, targeted changed-file ESLint, `npm run build --prefix apps/web`, and API `node --check` passed.
+- [ ] Repo-wide `npm run lint --prefix apps/web` is still blocked by unrelated existing lint errors in `AssetTable.jsx`, `Sidebar.jsx`, `DataRefreshContext.jsx`, `useCategoryFieldSettings.js`, `importMapping.js`, `AssetsPage.jsx`, and `UsersSettingsPage.jsx`.
