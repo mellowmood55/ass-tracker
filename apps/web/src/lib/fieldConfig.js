@@ -22,6 +22,22 @@ export function cloneConfig(config) {
   return JSON.parse(JSON.stringify(config));
 }
 
+const FIXED_SHARED_FIELD_NAMES = new Set([
+  "location",
+  "office",
+  "model",
+  "assetNo",
+  "serialNo",
+  "status",
+]);
+
+function readAssetField(asset, column) {
+  if (column.scope === "shared" && FIXED_SHARED_FIELD_NAMES.has(column.key)) {
+    return asset[column.key];
+  }
+  return asset.details?.[column.key];
+}
+
 export function getAllFieldNames(config) {
   return [
     ...(config.sharedFields || []).map((field) => field.name),
@@ -65,7 +81,7 @@ export function buildPreviewColumns(config) {
       label: field.label,
       groupLabel: getGroupLabel(groups, field),
       scope: "shared",
-      storage: "assets column",
+      storage: FIXED_SHARED_FIELD_NAMES.has(field.name) ? "assets column" : "details_json",
       sampleValue: sampleValueForField(field),
     });
   }
@@ -94,8 +110,7 @@ export function buildAssetColumnsFromCategory(category) {
   }).map((column) => ({
     label: column.label,
     value: (asset) => {
-      const raw =
-        column.scope === "shared" ? asset[column.key] : asset.details?.[column.key];
+      const raw = readAssetField(asset, column);
       if (raw === null || raw === undefined || raw === "") return "-";
       if (typeof raw === "boolean") return raw ? "Yes" : "No";
       return raw;

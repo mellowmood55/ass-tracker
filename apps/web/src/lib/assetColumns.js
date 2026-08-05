@@ -1,6 +1,12 @@
 import { SHARED_FIELD_NAMES } from "./constants";
 export { buildAssetColumnsFromCategory } from "./fieldConfig";
 
+const FIXED_SHARED_FIELD_NAMES = new Set(SHARED_FIELD_NAMES);
+
+function isFixedSharedField(fieldName) {
+  return FIXED_SHARED_FIELD_NAMES.has(fieldName);
+}
+
 export const CATEGORY_LIST_COLUMNS = {
   computer: [
     { label: "Asset No", value: (asset) => asset.assetNo || "-" },
@@ -139,7 +145,9 @@ export function makeInitialFormState(category) {
 export function formStateFromAsset(asset, category) {
   const nextState = makeInitialFormState(category);
   for (const field of category.sharedFields) {
-    nextState[field.name] = asset[field.name] ?? nextState[field.name];
+    nextState[field.name] = isFixedSharedField(field.name)
+      ? asset[field.name] ?? nextState[field.name]
+      : asset.details?.[field.name] ?? nextState[field.name];
   }
   for (const field of category.detailFields) {
     nextState[field.name] = asset.details?.[field.name] ?? nextState[field.name];
@@ -158,6 +166,11 @@ export function payloadFromForm(formState, selectedCategory, activeCategory) {
   }
 
   if (activeCategory) {
+    for (const field of activeCategory.sharedFields) {
+      if (!isFixedSharedField(field.name)) {
+        details[field.name] = formState[field.name];
+      }
+    }
     for (const field of activeCategory.detailFields) {
       details[field.name] = formState[field.name];
     }
