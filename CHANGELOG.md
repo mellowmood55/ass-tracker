@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Blocked admins from changing their own role or active status through the user-management API, preventing stale admin tokens from undoing demotion or deactivation.
+
 ### Added
 - Operator vs admin roles: operators can create/import/read; only admins edit/delete assets and manage settings.
 - Settings hub: Account (change password), Appearance (light/dark/system), Users (admin registration), Category Fields.

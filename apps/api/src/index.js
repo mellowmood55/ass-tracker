@@ -250,6 +250,10 @@ app.patch("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload." });
   }
 
+  if (id === Number(req.user.sub)) {
+    return res.status(400).json({ message: "You cannot change your own role or active status." });
+  }
+
   try {
     const existingResult = await query(
       "SELECT id, username, role, is_active, created_at, updated_at FROM users WHERE id = $1",
@@ -263,18 +267,6 @@ app.patch("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
     const nextRole = parsed.data.role ?? normalizeRole(existing.role);
     const nextActive =
       parsed.data.isActive !== undefined ? parsed.data.isActive : existing.is_active !== false;
-
-    if (id === Number(req.user.sub) && nextActive === false) {
-      return res.status(400).json({ message: "You cannot deactivate your own account." });
-    }
-
-    if (
-      id === Number(req.user.sub) &&
-      normalizeRole(existing.role) === ROLES.ADMIN &&
-      nextRole !== ROLES.ADMIN
-    ) {
-      return res.status(400).json({ message: "You cannot demote your own admin account." });
-    }
 
     if (normalizeRole(existing.role) === ROLES.ADMIN && (nextRole !== ROLES.ADMIN || nextActive === false)) {
       const adminCount = await query(
