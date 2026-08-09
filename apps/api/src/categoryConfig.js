@@ -434,23 +434,6 @@ function patchCategoryConfig(code, config) {
       };
     }
 
-    if (field.name === "antivirusInstalled") {
-      return {
-        ...field,
-        required: false,
-        locked: false,
-      };
-    }
-
-    if (field.name === "antivirusType" || field.name === "remainingSubscriptionDays") {
-      return {
-        ...field,
-        required: false,
-        locked: false,
-        showWhen: { field: "antivirusInstalled", equals: true },
-      };
-    }
-
     return field;
   });
 
@@ -572,4 +555,5 @@ module.exports = {
   fieldIsVisible,
   fieldIsRequired,
   buildReportRowFromConfig,
+  patchCategoryConfig,
 };
