@@ -66,32 +66,40 @@ function saveStoredMapping(categoryCode, mapping) {
   }
 }
 
-function applyStoredMapping(headers, categoryCode, autoMapped) {
-  const stored = readStoredMappings()[categoryCode];
+function applyStoredMapping(headers, category, autoMapped) {
+  const stored = readStoredMappings()[category.code];
   if (!stored || typeof stored !== "object") {
     return autoMapped;
   }
 
   const next = { ...autoMapped.mapping };
   const nextConfidence = { ...autoMapped.confidence };
+  const validFields = new Set(fieldOptionsFromCategory(category).map((field) => field.name));
   const usedFields = new Set();
 
   for (const header of headers) {
     const field = stored[header];
-    if (!field) continue;
+    if (!field || !validFields.has(field)) continue;
     if (usedFields.has(field)) continue;
+
+    for (const otherHeader of headers) {
+      if (otherHeader !== header && next[otherHeader] === field) {
+        next[otherHeader] = null;
+        nextConfidence[otherHeader] = 0;
+      }
+    }
+
     next[header] = field;
     nextConfidence[header] = 1;
     usedFields.add(field);
   }
 
-  for (const [header, field] of Object.entries(next)) {
-    if (field && usedFields.has(field) && stored[header] !== field) {
-      // keep first assignment
-    }
-  }
-
   return { mapping: next, confidence: nextConfidence };
+}
+
+function fieldOptionsFromCategory(category) {
+  if (!category) return [];
+  return [...(category.sharedFields || []), ...(category.detailFields || [])];
 }
 
 function downloadAttentionCsv(needsAttention) {
@@ -205,7 +213,7 @@ export function ImportWizard({ categories, onImported, onFinished, onCancel }) {
         }
 
         const autoMapped = autoMapColumns(parsed.headers, category, parsed.headerMeta);
-        const merged = applyStoredMapping(parsed.headers, category.code, autoMapped);
+        const merged = applyStoredMapping(parsed.headers, category, autoMapped);
 
         setHeaders(parsed.headers);
         setHeaderMeta(parsed.headerMeta || []);
