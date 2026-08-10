@@ -32,7 +32,7 @@ const { validateAssetPayload } = require("./validation");
 const { resolveUniqueConflict } = require("./duplicateConflict");
 const {
   createImportJob,
-  getImportJob,
+  getImportJobForUser,
   getLatestImportJob,
   processImportJob,
 } = require("./importJobs");
@@ -1215,7 +1215,7 @@ app.get("/api/import-jobs/latest", requireAuth, async (req, res) => {
 
 app.get("/api/import-jobs/:id", requireAuth, async (req, res) => {
   try {
-    const job = await getImportJob(Number(req.params.id));
+    const job = await getImportJobForUser(Number(req.params.id), req.user.sub);
     if (!job) {
       return res.status(404).json({ message: "Import job not found." });
     }

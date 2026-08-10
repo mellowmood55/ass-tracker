@@ -143,6 +143,15 @@ async function getImportJob(jobId) {
   return result.rows[0] ? mapImportJob(result.rows[0]) : null;
 }
 
+async function getImportJobForUser(jobId, userId) {
+  const result = await query(
+    `SELECT * FROM import_jobs
+     WHERE id = $1 AND created_by = $2`,
+    [jobId, userId]
+  );
+  return result.rows[0] ? mapImportJob(result.rows[0]) : null;
+}
+
 async function getLatestImportJob(userId) {
   const result = await query(
     `SELECT * FROM import_jobs
@@ -597,6 +606,7 @@ module.exports = {
   createImportJob,
   updateImportJob,
   getImportJob,
+  getImportJobForUser,
   getLatestImportJob,
   processImportJob,
   computeAutofill,

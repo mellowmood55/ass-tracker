@@ -8,6 +8,8 @@
 - `/apps/api/src/db.js` — Postgres init, migrations (incl. maintenance cadence/issue columns)
 - `/apps/api/src/maintenance.js` — Quarterly/monthly templates, records, report payload
 - `/apps/api/src/index.js` — Routes + PAD/IT change-request PDF generation
+- `/apps/api/src/importJobs.js` — Background spreadsheet import jobs, totals/progress mapping, and owner-scoped job lookup
+- `/apps/api/src/importJobs.test.js` — Node test coverage for import-job owner scoping
 - `/apps/web/src/pages/MaintenancePage.jsx` — Quarterly + Monthly list sections + form
 - `/apps/web/src/pages/settings/MaintenanceChecklistsPage.jsx` — Cadence × category checklist editor
 - `/apps/web/src/components/maintenance/MaintenanceAssetPanel.jsx` — Left asset identity panel
@@ -15,6 +17,7 @@
 - `/apps/api/src/assetCascade.js` — Office/assigned-room cascade rules
 
 ## 3. Recently Implemented (Log)
+- **2026-08-10:** Secured direct import-job polling so `/api/import-jobs/:id` only returns jobs created by the authenticated user; added focused Node tests and changelog entry.
 - **2026-07-29:** PDF always renders Hardware Problem + Software Problem sections (blank when empty) for consistent layout.
 - **2026-07-29:** Maintenance row click opens form directly; list-only scroll (max-h-[28rem]); keyboard a11y (Enter/Space). Form button kept as fallback.
 - **2026-07-29:** Maintenance Quarterly/Monthly as separate views with switch buttons + search; checklist settings use the same cadence switch.
@@ -22,6 +25,7 @@
 - **2026-07-28:** Asset filtering simplified to category/status/search; Move Asset tab; department UI removed; office cascade.
 
 ## 4. Current Working State & Pending Tasks
+- [x] Fix import-job IDOR in direct polling endpoint
 - [x] Maintenance view switch (quarterly/monthly) + search bar
 - [x] Maintenance quarterly/monthly + issue report (schema, API, UI, PDF, settings)
 - [x] Transfer notes + push `feat/asset-enhancements` (not main)
