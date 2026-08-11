@@ -1,4 +1,4 @@
-const { query } = require("./db");
+const { query, withTransaction } = require("./db");
 
 const CADENCES = ["quarterly", "monthly"];
 const MAINT_CATEGORIES = ["computer", "printer"];
@@ -142,44 +142,47 @@ async function saveTemplate(cadence, category, { name, items }, actorId) {
     throw new Error("Checklist category must be computer or printer.");
   }
 
-  let templateResult = await query(
-    `SELECT id FROM maintenance_checklist_templates
-     WHERE cadence = $1 AND category = $2`,
-    [normalizedCadence, category]
-  );
-
-  let templateId;
   const defaultName = `${category} ${normalizedCadence} checklist`;
-  if (templateResult.rows[0]) {
-    templateId = templateResult.rows[0].id;
-    await query(
-      `UPDATE maintenance_checklist_templates
-       SET name = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2
-       WHERE id = $3`,
-      [name || defaultName, actorId, templateId]
-    );
-    await query(`DELETE FROM maintenance_checklist_template_items WHERE template_id = $1`, [
-      templateId,
-    ]);
-  } else {
-    const created = await query(
-      `INSERT INTO maintenance_checklist_templates (category, cadence, name, updated_by)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id`,
-      [category, normalizedCadence, name || defaultName, actorId]
-    );
-    templateId = created.rows[0].id;
-  }
-
   const list = Array.isArray(items) ? items : [];
-  for (let i = 0; i < list.length; i += 1) {
-    const item = list[i];
-    await query(
-      `INSERT INTO maintenance_checklist_template_items (template_id, label, sort_order, description_hint)
-       VALUES ($1, $2, $3, $4)`,
-      [templateId, item.label, i, item.descriptionHint || null]
+
+  await withTransaction(async (client) => {
+    const templateResult = await client.query(
+      `SELECT id FROM maintenance_checklist_templates
+       WHERE cadence = $1 AND category = $2`,
+      [normalizedCadence, category]
     );
-  }
+
+    let templateId;
+    if (templateResult.rows[0]) {
+      templateId = templateResult.rows[0].id;
+      await client.query(
+        `UPDATE maintenance_checklist_templates
+         SET name = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2
+         WHERE id = $3`,
+        [name || defaultName, actorId, templateId]
+      );
+      await client.query(`DELETE FROM maintenance_checklist_template_items WHERE template_id = $1`, [
+        templateId,
+      ]);
+    } else {
+      const created = await client.query(
+        `INSERT INTO maintenance_checklist_templates (category, cadence, name, updated_by)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [category, normalizedCadence, name || defaultName, actorId]
+      );
+      templateId = created.rows[0].id;
+    }
+
+    for (let i = 0; i < list.length; i += 1) {
+      const item = list[i];
+      await client.query(
+        `INSERT INTO maintenance_checklist_template_items (template_id, label, sort_order, description_hint)
+         VALUES ($1, $2, $3, $4)`,
+        [templateId, item.label, i, item.descriptionHint || null]
+      );
+    }
+  });
 
   const all = await listTemplates();
   return all.find(
