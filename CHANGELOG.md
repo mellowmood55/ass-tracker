@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Maintenance checklist template saves now replace items inside a transaction so a failed save cannot leave a template with deleted or partial checklist items.
 - Import no longer fails the whole job when a row has a blank Status (`assets.status` is NOT NULL); blank status is stored as empty and flagged for attention, and other rows continue.
 - Import normalizes mismatched status values (e.g. `not working` → `Non-funct`) instead of rejecting fixed-list mismatches; select mismatches soft-clear on import.
 
