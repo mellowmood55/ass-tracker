@@ -6,10 +6,15 @@ function isEmptyValue(value) {
   return false;
 }
 
+function normalizeComparable(value) {
+  if (isEmptyValue(value)) return "";
+  return String(value).trim();
+}
+
 function getDepartment(asset) {
+  if (!isEmptyValue(asset.office)) return String(asset.office).trim();
   const fromDetails = asset.details?.department;
   if (!isEmptyValue(fromDetails)) return String(fromDetails).trim();
-  if (!isEmptyValue(asset.office)) return String(asset.office).trim();
   return "";
 }
 
@@ -25,10 +30,13 @@ function applyAssignmentCascade(existing, incoming) {
     ...(existing.details || {}),
     ...(incoming.details || {}),
   };
-  delete nextDetails.department;
 
   const prevOffice = getDepartment(existing);
-  const nextOffice = incoming.office !== undefined ? incoming.office : existing.office;
+  let nextOffice = incoming.office !== undefined ? incoming.office : existing.office;
+  if (isEmptyValue(nextOffice) && !isEmptyValue(nextDetails.department)) {
+    nextOffice = nextDetails.department;
+  }
+  delete nextDetails.department;
 
   const locationChanged =
     incoming.location !== undefined &&
@@ -40,13 +48,17 @@ function applyAssignmentCascade(existing, incoming) {
       incoming.details && Object.prototype.hasOwnProperty.call(incoming.details, "assignedRoom")
         ? incoming.details.assignedRoom
         : undefined;
+    const existingAssignee = existing.details?.assignedRoom;
+    const assigneeChanged =
+      incomingAssignee !== undefined &&
+      normalizeComparable(incomingAssignee) !== normalizeComparable(existingAssignee);
 
-    if (incomingAssignee !== undefined && !isEmptyValue(incomingAssignee)) {
+    if (assigneeChanged && !isEmptyValue(incomingAssignee)) {
       nextDetails.assignedRoom = incomingAssignee;
-    } else if (officeChanged) {
+    } else {
       nextDetails.assignedRoom = "";
       warnings.push(
-        "Office changed. Assigned room was cleared so the asset can be reassigned correctly for the new office."
+        "Location or office changed. Assigned room was cleared so the asset can be reassigned correctly."
       );
     }
 

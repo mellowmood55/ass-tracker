@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Asset move and bulk-edit updates now apply the same reassignment cascade and validation as single-asset edits, preventing stale assignees and invalid bulk field values from being persisted.
 - Import no longer fails the whole job when a row has a blank Status (`assets.status` is NOT NULL); blank status is stored as empty and flagged for attention, and other rows continue.
 - Import normalizes mismatched status values (e.g. `not working` → `Non-funct`) instead of rejecting fixed-list mismatches; select mismatches soft-clear on import.
 

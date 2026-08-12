@@ -1080,6 +1080,7 @@ app.post("/api/assets/bulk-edit", requireAuth, requireAdminForEdit, async (req, 
 
   try {
     const updated = [];
+    const warnings = [];
     await withTransaction(async (client) => {
       for (const id of ids) {
         const existingResult = await client.query("SELECT * FROM assets WHERE id = $1", [id]);
@@ -1100,6 +1101,23 @@ app.post("/api/assets/bulk-edit", requireAuth, requireAdminForEdit, async (req, 
           status: fields.status !== undefined ? fields.status : before.status,
           details: nextDetails,
         };
+        const cascade = applyAssignmentCascade(before, next);
+        const validation = validateAssetPayload({
+          ...next,
+          office: cascade.office,
+          details: cascade.details,
+        });
+        if (!validation.valid) {
+          const validationError = new Error("Bulk edit validation failed.");
+          validationError.code = "BULK_EDIT_VALIDATION";
+          validationError.assetId = id;
+          validationError.errors = validation.errors;
+          throw validationError;
+        }
+        const validNext = validation.data;
+        for (const warning of cascade.warnings) {
+          warnings.push({ assetId: id, message: warning });
+        }
 
         const updateResult = await client.query(
           `UPDATE assets
@@ -1108,11 +1126,11 @@ app.post("/api/assets/bulk-edit", requireAuth, requireAdminForEdit, async (req, 
            WHERE id = $7
            RETURNING *`,
           [
-            next.location || null,
-            next.office || null,
-            next.model || null,
-            next.status,
-            JSON.stringify(next.details || {}),
+            validNext.location || null,
+            validNext.office || null,
+            validNext.model || null,
+            validNext.status,
+            JSON.stringify(validNext.details || {}),
             req.user.sub,
             id,
           ]
@@ -1128,8 +1146,14 @@ app.post("/api/assets/bulk-edit", requireAuth, requireAdminForEdit, async (req, 
         updated.push(after);
       }
     });
-    return res.json({ updated: updated.length, assets: updated });
+    return res.json({ updated: updated.length, assets: updated, warnings });
   } catch (error) {
+    if (error.code === "BULK_EDIT_VALIDATION") {
+      return res.status(400).json({
+        message: `Validation failed for asset #${error.assetId}.`,
+        errors: error.errors || [],
+      });
+    }
     console.error(error);
     return res.status(500).json({ message: "Failed to bulk edit assets." });
   }
