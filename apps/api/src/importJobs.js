@@ -185,6 +185,10 @@ function computeAutofill(existing, incoming) {
   return { next, filledFields };
 }
 
+function canAutofillDuplicate(existing, category) {
+  return Boolean(existing && existing.category === category);
+}
+
 async function findExistingByIdentity(client, assetNo, serialNo) {
   if (assetNo) {
     const byAsset = await client.query(
@@ -297,6 +301,29 @@ async function processImportJob(jobId, { category, rows, user }) {
         }
 
         if (duplicateFields.length > 0 && existing) {
+          if (!canAutofillDuplicate(existing, category)) {
+            totals.skipped += 1;
+            needsAttention.push({
+              row: index + 1,
+              reason: "duplicate",
+              id: existing.id,
+              assetNo,
+              serialNo,
+              blankFields: [],
+              duplicateFields,
+              existingId: existing.id,
+            });
+
+            if (assetNo) seenAssetNos.add(assetNo);
+            if (serialNo) seenSerialNos.add(serialNo);
+
+            const percent = Math.round(((index + 1) / rows.length) * 100);
+            if (index % 5 === 0 || index === rows.length - 1) {
+              await updateImportJob(jobId, { progressPercent: percent, totals });
+            }
+            continue;
+          }
+
           const { next, filledFields } = computeAutofill(existing, asset);
           next.status = statusForDb(next.status);
           if (filledFields.length > 0) {
@@ -481,65 +508,67 @@ async function processImportJob(jobId, { category, rows, user }) {
             ]);
             if (existingResult.rows[0]) {
               const raceExisting = mapAssetRow(existingResult.rows[0]);
-              const { next, filledFields } = computeAutofill(raceExisting, asset);
-              next.status = statusForDb(next.status);
-              if (filledFields.length > 0) {
-                try {
-                  const updateResult = await client.query(
-                    `UPDATE assets SET
-                      location = $1, office = $2, model = $3, status = $4,
-                      details_json = $5::jsonb, updated_by = $6, updated_at = CURRENT_TIMESTAMP
-                     WHERE id = $7 RETURNING *`,
-                    [
-                      next.location || null,
-                      next.office || null,
-                      next.model || null,
-                      next.status,
-                      JSON.stringify(next.details || {}),
-                      user.sub,
-                      raceExisting.id,
-                    ]
-                  );
-                  const mapped = mapAssetRow(updateResult.rows[0]);
-                  await insertAuditLog(client, {
-                    assetId: mapped.id,
-                    action: "import_autofill",
-                    user,
-                    before: raceExisting,
-                    after: mapped,
-                  });
-                  totals.updated += 1;
-                  updated.push(mapped);
-                  needsAttention.push({
-                    row: index + 1,
-                    reason: "autofill",
-                    id: mapped.id,
-                    assetNo: mapped.assetNo || null,
-                    serialNo: mapped.serialNo || null,
-                    blankFields: [],
-                    filledFields,
-                    duplicateFields: raceDuplicateFields,
-                    existingId: mapped.id,
-                  });
-                  const percent = Math.round(((index + 1) / rows.length) * 100);
-                  if (index % 5 === 0 || index === rows.length - 1) {
-                    await updateImportJob(jobId, { progressPercent: percent, totals });
+              if (canAutofillDuplicate(raceExisting, category)) {
+                const { next, filledFields } = computeAutofill(raceExisting, asset);
+                next.status = statusForDb(next.status);
+                if (filledFields.length > 0) {
+                  try {
+                    const updateResult = await client.query(
+                      `UPDATE assets SET
+                        location = $1, office = $2, model = $3, status = $4,
+                        details_json = $5::jsonb, updated_by = $6, updated_at = CURRENT_TIMESTAMP
+                       WHERE id = $7 RETURNING *`,
+                      [
+                        next.location || null,
+                        next.office || null,
+                        next.model || null,
+                        next.status,
+                        JSON.stringify(next.details || {}),
+                        user.sub,
+                        raceExisting.id,
+                      ]
+                    );
+                    const mapped = mapAssetRow(updateResult.rows[0]);
+                    await insertAuditLog(client, {
+                      assetId: mapped.id,
+                      action: "import_autofill",
+                      user,
+                      before: raceExisting,
+                      after: mapped,
+                    });
+                    totals.updated += 1;
+                    updated.push(mapped);
+                    needsAttention.push({
+                      row: index + 1,
+                      reason: "autofill",
+                      id: mapped.id,
+                      assetNo: mapped.assetNo || null,
+                      serialNo: mapped.serialNo || null,
+                      blankFields: [],
+                      filledFields,
+                      duplicateFields: raceDuplicateFields,
+                      existingId: mapped.id,
+                    });
+                    const percent = Math.round(((index + 1) / rows.length) * 100);
+                    if (index % 5 === 0 || index === rows.length - 1) {
+                      await updateImportJob(jobId, { progressPercent: percent, totals });
+                    }
+                    continue;
+                  } catch (raceUpdateError) {
+                    totals.failed += 1;
+                    needsAttention.push({
+                      row: index + 1,
+                      reason: "error",
+                      id: raceExisting.id,
+                      assetNo,
+                      serialNo,
+                      blankFields,
+                      duplicateFields: raceDuplicateFields,
+                      existingId: raceExisting.id,
+                      message: raceUpdateError.message || "Failed to auto-fill duplicate row.",
+                    });
+                    continue;
                   }
-                  continue;
-                } catch (raceUpdateError) {
-                  totals.failed += 1;
-                  needsAttention.push({
-                    row: index + 1,
-                    reason: "error",
-                    id: raceExisting.id,
-                    assetNo,
-                    serialNo,
-                    blankFields,
-                    duplicateFields: raceDuplicateFields,
-                    existingId: raceExisting.id,
-                    message: raceUpdateError.message || "Failed to auto-fill duplicate row.",
-                  });
-                  continue;
                 }
               }
             }
@@ -600,5 +629,6 @@ module.exports = {
   getLatestImportJob,
   processImportJob,
   computeAutofill,
+  canAutofillDuplicate,
   mapImportJob,
 };
