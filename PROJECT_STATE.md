@@ -7,6 +7,8 @@
 ## 2. Core File Map
 - `/apps/api/src/db.js` — Postgres init, migrations (incl. maintenance cadence/issue columns)
 - `/apps/api/src/maintenance.js` — Quarterly/monthly templates, records, report payload
+- `/apps/api/src/importJobs.js` — Spreadsheet import jobs, duplicate detection, category-safe autofill
+- `/apps/api/src/importJobs.test.js` — Node regression coverage for import duplicate autofill category guard
 - `/apps/api/src/index.js` — Routes + PAD/IT change-request PDF generation
 - `/apps/web/src/pages/MaintenancePage.jsx` — Quarterly + Monthly list sections + form
 - `/apps/web/src/pages/settings/MaintenanceChecklistsPage.jsx` — Cadence × category checklist editor
@@ -15,6 +17,7 @@
 - `/apps/api/src/assetCascade.js` — Office/assigned-room cascade rules
 
 ## 3. Recently Implemented (Log)
+- **2026-08-13:** Fixed import duplicate autofill to skip cross-category identifier collisions instead of updating unrelated assets; added Node regression test and changelog entry.
 - **2026-07-29:** PDF always renders Hardware Problem + Software Problem sections (blank when empty) for consistent layout.
 - **2026-07-29:** Maintenance row click opens form directly; list-only scroll (max-h-[28rem]); keyboard a11y (Enter/Space). Form button kept as fallback.
 - **2026-07-29:** Maintenance Quarterly/Monthly as separate views with switch buttons + search; checklist settings use the same cadence switch.
@@ -25,4 +28,5 @@
 - [x] Maintenance view switch (quarterly/monthly) + search bar
 - [x] Maintenance quarterly/monthly + issue report (schema, API, UI, PDF, settings)
 - [x] Transfer notes + push `feat/asset-enhancements` (not main)
+- [x] Import duplicate autofill skips cross-category identifier collisions
 - [ ] Open PR into `main` when ready
